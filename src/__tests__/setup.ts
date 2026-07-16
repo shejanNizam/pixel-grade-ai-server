@@ -1,0 +1,19 @@
+// Set required env vars before any module is loaded
+process.env.NODE_ENV = "test";
+process.env.PORT = "5001";
+process.env.DATABASE_URL = "mongodb://localhost:27017/test-db";
+process.env.JWT_ACCESS_SECRET = "test_access_secret_min8";
+process.env.JWT_ACCESS_EXPIRES = "1d";
+process.env.JWT_REFRESH_SECRET = "test_refresh_secret_min8";
+process.env.JWT_REFRESH_EXPIRES = "30d";
+process.env.BCRYPT_SALT_ROUND = "4";
+process.env.SUPER_ADMIN_EMAIL = "super@example.com";
+process.env.SUPER_ADMIN_PASSWORD = "SuperSecure@123";
+process.env.ADMIN_EMAIL = "admin@example.com";
+process.env.ADMIN_PASSWORD = "AdminSecure@123";
+process.env.EXPRESS_SESSION_SECRET = "test_session_secret";
+process.env.FRONTEND_URL = "*";
+process.env.REDIS_HOST = "localhost";
+process.env.REDIS_PORT = "6379";
+process.env.REDIS_USERNAME = "default";
+process.env.REDIS_PASSWORD = "";

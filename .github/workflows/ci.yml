@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  ci:
+    name: Lint, Test & Build
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 5000
+      DATABASE_URL: mongodb://localhost:27017/test-db
+      JWT_ACCESS_SECRET: ci_access_secret_at_least_8
+      JWT_ACCESS_EXPIRES: 1d
+      JWT_REFRESH_SECRET: ci_refresh_secret_at_least_8
+      JWT_REFRESH_EXPIRES: 30d
+      BCRYPT_SALT_ROUND: "4"
+      SUPER_ADMIN_EMAIL: super@example.com
+      SUPER_ADMIN_PASSWORD: SuperSecure@123
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: AdminSecure@123
+      EXPRESS_SESSION_SECRET: ci_session_secret
+      FRONTEND_URL: "*"
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      REDIS_USERNAME: default
+      REDIS_PASSWORD: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --coverage
+
+      - name: Build
+        run: npm run build
