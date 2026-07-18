@@ -180,14 +180,6 @@ const options: swaggerJsdoc.Options = {
             phone: { type: "string", example: "+8801798765432" },
           },
         },
-        DeviceTokenRequest: {
-          type: "object",
-          required: ["token", "platform"],
-          properties: {
-            token: { type: "string", example: "fcm-device-token-here" },
-            platform: { type: "string", enum: ["android", "ios", "web"], example: "android" },
-          },
-        },
         UploadResponse: {
           type: "object",
           properties: {

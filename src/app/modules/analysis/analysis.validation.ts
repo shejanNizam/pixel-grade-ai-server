@@ -1,0 +1,32 @@
+import z from "zod";
+import { CardGame } from "../card/card.interface";
+import { ImageSide, UploadSource } from "./analysis.interface";
+
+const objectId = z
+  .string()
+  .regex(/^[0-9a-fA-F]{24}$/, { message: "Must be a valid ObjectId." });
+
+/**
+ * `source` is accepted here but does not grant anything — `requirePixelScope`
+ * middleware checks the caller's plan before this route's handler runs.
+ */
+export const createAnalysisZodSchema = z.object({
+  source: z.enum(Object.values(UploadSource) as [string, ...string[]]).optional(),
+  game: z.enum(Object.values(CardGame) as [string, ...string[]]).optional(),
+  language: z.string().max(30).optional(),
+  images: z
+    .array(
+      z.object({
+        imageUrl: z.string().url({ message: "Each image needs a valid URL." }),
+        side: z.enum(Object.values(ImageSide) as [string, ...string[]]).optional(),
+        slotIndex: z.number().int().min(0).max(9).optional(),
+      }),
+    )
+    .min(1, { message: "At least one image is required." })
+    // 10 per side, front and back.
+    .max(20, { message: "At most 20 images can be uploaded." }),
+});
+
+export const confirmCardZodSchema = z.object({
+  cardId: objectId,
+});

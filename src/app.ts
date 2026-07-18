@@ -17,6 +17,7 @@ import notFound from "./app/middlewares/notFound";
 import { globalLimiter } from "./app/middlewares/rateLimiter";
 import { requestId } from "./app/middlewares/requestId";
 import { HealthRoutes } from "./app/modules/health/health.route";
+import { StripeWebhookRoutes } from "./app/modules/subscription/subscription.route";
 import router from "./app/routes/index";
 import { logger } from "./app/utils/logger";
 
@@ -34,6 +35,20 @@ app.use(
   }),
 );
 app.set("trust proxy", 1);
+
+// Stripe webhook — mounted BEFORE the rate limiter and the JSON parser.
+//   • Before globalLimiter: a burst of legitimate Stripe events must never be
+//     rate-limited into retries.
+//   • Before express.json(): signature verification hashes the exact bytes
+//     Stripe sent, and a JSON parse-and-restringify changes them, so every
+//     event would fail verification.
+// Authenticity comes from the HMAC signature, not from a bearer token.
+app.use(
+  "/webhook",
+  express.raw({ type: "application/json" }),
+  StripeWebhookRoutes,
+);
+
 app.use(globalLimiter);
 
 // Body parsers

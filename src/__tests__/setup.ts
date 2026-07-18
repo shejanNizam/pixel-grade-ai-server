@@ -6,6 +6,7 @@ process.env.JWT_ACCESS_SECRET = "test_access_secret_min8";
 process.env.JWT_ACCESS_EXPIRES = "1d";
 process.env.JWT_REFRESH_SECRET = "test_refresh_secret_min8";
 process.env.JWT_REFRESH_EXPIRES = "30d";
+process.env.JWT_RESET_SECRET = "test_reset_secret_min8";
 process.env.BCRYPT_SALT_ROUND = "4";
 process.env.SUPER_ADMIN_EMAIL = "super@example.com";
 process.env.SUPER_ADMIN_PASSWORD = "SuperSecure@123";

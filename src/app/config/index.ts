@@ -43,6 +43,32 @@ const envSchema = z.object({
   REDIS_PORT: z.string().optional(),
   REDIS_USERNAME: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
+
+  // External AI/data services. All optional until the client supplies credentials
+  // (see docs/OPEN-QUESTIONS.md) — a missing key must degrade to a clear runtime
+  // error on the affected route, not stop the server from booting.
+  // Scrydex needs BOTH a key and a team id — one without the other 401s.
+  SCRYDEX_API_KEY: z.string().optional(),
+  SCRYDEX_TEAM_ID: z.string().optional(),
+  SCRYDEX_BASE_URL: z.string().default("https://api.scrydex.com"),
+
+  PRICING_API_KEY: z.string().optional(),
+  PRICING_SOURCE: z
+    .enum(["tcgplayer", "pricecharting", "cardmarket", "scrydex"])
+    .default("scrydex"),
+
+  // AI grading. The client has not named a model vendor (docs/OPEN-QUESTIONS.md),
+  // so the grading service talks to a provider interface; Claude is the default
+  // implementation because it accepts the card images directly as vision input.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GRADING_MODEL: z.string().default("claude-opus-4-8"),
+  /** Stamped onto every report. Bump when the model or the prompt changes, so a
+   *  grade can always be traced to what produced it. */
+  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v1"),
+
+  // Slab background generation — vendor unconfirmed.
+  IMAGEGEN_API_KEY: z.string().optional(),
+  IMAGEGEN_BASE_URL: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -102,5 +128,32 @@ export const configs = {
     redis_port: env.REDIS_PORT,
     redis_username: env.REDIS_USERNAME,
     redis_password: env.REDIS_PASSWORD,
+  },
+
+  SCRYDEX: {
+    api_key: env.SCRYDEX_API_KEY,
+    team_id: env.SCRYDEX_TEAM_ID,
+    base_url: env.SCRYDEX_BASE_URL,
+  },
+
+  PRICING: {
+    api_key: env.PRICING_API_KEY,
+    source: env.PRICING_SOURCE,
+  },
+
+  GRADING: {
+    anthropic_api_key: env.ANTHROPIC_API_KEY,
+    model: env.GRADING_MODEL,
+    model_version: env.GRADING_MODEL_VERSION,
+  },
+
+  IMAGEGEN: {
+    api_key: env.IMAGEGEN_API_KEY,
+    base_url: env.IMAGEGEN_BASE_URL,
+  },
+
+  STRIPE: {
+    secret_key: env.STRIPE_SECRET_KEY,
+    webhook_secret: env.STRIPE_WEBHOOK_SECRET,
   },
 };
