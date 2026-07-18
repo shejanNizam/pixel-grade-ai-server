@@ -3,7 +3,7 @@ import { REDIS_KEYS } from "../../constants";
 import { configs } from "../../config/index";
 import { redisClient } from "../../config/redis.config";
 import AppError from "../../errorHelpers/AppError";
-import { GradingProvider } from "../../services/grading.provider";
+import { GradingProvider } from "../../services/grading/index";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { logger } from "../../utils/logger";
 import { AnalysisStatus } from "../analysis/analysis.interface";
