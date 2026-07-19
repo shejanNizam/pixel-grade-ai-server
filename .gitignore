@@ -4,6 +4,9 @@ dist/
 *.log
 
 # env files with real credentials — only the example/sample/local templates are safe to commit
+.env
+.env.*
+!.env.example
 
 branch_structure.json
 temp_auto_push.bat
