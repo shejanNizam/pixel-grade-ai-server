@@ -1,0 +1,2892 @@
+{
+  "info": {
+    "name": "PixelGrade AI — API",
+    "description": "PixelGrade AI backend — organized by FRONTEND SCREEN, so the folder for the page you are building contains every request that page needs.\n\n## Quick start\n\n1. `npm run dev:local`\n2. Run **00 · Auth › Login** — tokens are captured automatically into collection variables; every request inherits `Bearer {{accessToken}}`.\n3. Open the folder matching your screen and go top to bottom.\n\nA request used by two screens appears in both folders on purpose — each folder is self-sufficient.\n\n## Chained variables\n\nCreating things writes ids back automatically: Login → accessToken/refreshToken/userId · List plans → planId · Search catalogue → cardId · Create analysis → analysisId · Grade → reportId · Create slab → slabLabelId · Create ticket → ticketId.\n\n## The one flow that must run in order\n\n**01 · User Dashboard › New Analysis (Scan)** — upload → create → CONFIRM (hard server gate) → grade. Grading returns 400 until confirm has run.\n\n## Admin folders\n\nLog in as admin/super_admin first; a `user` token gets 403.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Collection-level sanity checks, applied to every request.",
+          "pm.test('Response is JSON or a known binary type', function () {",
+          "    const type = pm.response.headers.get('Content-Type') || '';",
+          "    pm.expect(type).to.match(/json|image|pdf|text/);",
+          "});",
+          "",
+          "// A 403 with no token is the API's way of saying 'log in first' —",
+          "// checkAuth throws before it ever parses a token, so it is not a 401.",
+          "if (pm.response.code === 403 && !pm.collectionVariables.get('accessToken')) {",
+          "    console.warn('No accessToken set. Run Auth > Login first.');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string",
+      "description": "Server origin. Health and the Stripe webhook sit outside /api/v1, so the version prefix lives on each path rather than here."
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "planId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cardId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "analysisId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reportId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "collectionItemId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slabLabelId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ticketId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notificationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "user@example.com",
+      "type": "string",
+      "description": "Credentials used by Auth > Login. Point these at a seeded account."
+    },
+    {
+      "key": "userPassword",
+      "value": "Password@123",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Auth & Onboarding",
+      "description": "Frontend pages: /signup, /verify-code, /login, /forgot-password, /reset-password.\n\nThe signup flow is: Register → Send OTP → Verify OTP (marks the email verified) → Login. Login fails with 403 until the email is verified.\n\n**Run Login before anything else** — it captures accessToken/refreshToken into collection variables automatically, and every other folder inherits them.",
+      "item": [
+        {
+          "name": "Sign up",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\",\n  \"phone\": \"+8801712345678\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/user/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "user",
+                "register"
+              ]
+            },
+            "description": "Password requires 8+ characters with an uppercase letter, a digit, and a special character. Phone is optional and must be E.164."
+          }
+        },
+        {
+          "name": "Send verification OTP",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/otp/send",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "otp",
+                "send"
+              ]
+            },
+            "description": "Rate limited to 5 per hour. Codes live in Redis with a 5–10 minute TTL."
+          }
+        },
+        {
+          "name": "Verify OTP (activates the account)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"otp\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/otp/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "otp",
+                "verify"
+              ]
+            },
+            "description": "`otp` must be exactly 6 digits."
+          }
+        },
+        {
+          "name": "Login ⭐ (captures tokens)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Captures the tokens so no other request needs a manual paste.",
+                  "pm.test('Login succeeded', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const data = body.data || {};",
+                  "",
+                  "    pm.test('Response carries an accessToken', function () {",
+                  "        pm.expect(data.accessToken, 'data.accessToken').to.be.a('string').and.not.empty;",
+                  "    });",
+                  "",
+                  "    if (data.accessToken) {",
+                  "        pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "        console.log('accessToken set');",
+                  "    }",
+                  "    if (data.refreshToken) {",
+                  "        pm.collectionVariables.set('refreshToken', data.refreshToken);",
+                  "    }",
+                  "    if (data.user && data.user._id) {",
+                  "        pm.collectionVariables.set('userId', data.user._id);",
+                  "        console.log('Logged in as ' + data.user.email + ' (' + data.user.role + ')');",
+                  "    }",
+                  "} else {",
+                  "    // Clear stale tokens so a failed login cannot leave a previous",
+                  "    // session silently authorising later requests.",
+                  "    pm.collectionVariables.set('accessToken', '');",
+                  "    pm.collectionVariables.set('refreshToken', '');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Rate limited to 20 requests per 15 minutes.\n\nFails with 403 if the account's email is not verified, is blocked, or was soft-deleted."
+          }
+        },
+        {
+          "name": "Refresh access token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const data = pm.response.json().data || {};",
+                  "    if (data.accessToken) {",
+                  "        pm.collectionVariables.set('accessToken', data.accessToken);",
+                  "        console.log('accessToken refreshed');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "refresh-token"
+              ]
+            },
+            "description": "Reads `refreshToken` from the cookie, NOT the body. Returns **201**, not 200.\n\nIf this 400s with \"No refresh token received from cookies\", log in again — Postman needs the cookie from a prior login against the same host."
+          }
+        },
+        {
+          "name": "Forgot password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Emails a reset link. The link carries the reset token that `reset-password` requires."
+          }
+        },
+        {
+          "name": "Reset password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer <reset-token-from-email>",
+                "description": "Guarded by checkResetToken, not checkAuth"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newPassword\": \"NewPassword@123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "reset-password"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Google OAuth (open in browser)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/google?redirect=/user-dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "google"
+              ],
+              "query": [
+                {
+                  "key": "redirect",
+                  "value": "/user-dashboard"
+                }
+              ]
+            },
+            "description": "Redirect flow — open this in a browser rather than Postman."
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('accessToken', '');",
+                  "pm.collectionVariables.set('refreshToken', '');",
+                  "console.log('Tokens cleared');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 · User Dashboard",
+      "description": "Everything under /user-dashboard, one sub-folder per screen. Each folder is self-sufficient: it contains every request its screen needs, even when that request also appears elsewhere.",
+      "item": [
+        {
+          "name": "Dashboard Home",
+          "description": "Page: /user-dashboard\n\nStat cards row → My dashboard stats.\nCollection value chart → Value over time.\nCollection by set donut + value bars → By set.\nRecent scans list → Recent reports.",
+          "item": [
+            {
+              "name": "My dashboard stats (5 stat cards)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/dashboard/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "dashboard",
+                    "me"
+                  ]
+                },
+                "description": "Five stat cards: `collectionValue`, `cardsInCollection`, `slabsOrdered`, `totalScans`, `averageGrade`.\n\nEach is `{ value, delta }`. **`delta` is null when last month was zero** — render no chip rather than a fabricated +100%. `averageGrade` is null outright when nothing is graded."
+              }
+            },
+            {
+              "name": "Collection value chart",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/value-over-time?months=12",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "value-over-time"
+                  ],
+                  "query": [
+                    {
+                      "key": "months",
+                      "value": "12",
+                      "description": "1-36, default 12"
+                    }
+                  ]
+                },
+                "description": "One point per calendar month, oldest-first, as `{ month: \"2026-07\", value }`.\n\nTwo documented approximations: today's quantity is applied to every past month, and prices before a card's history begins are carried backwards from its earliest known quote."
+              }
+            },
+            {
+              "name": "Collection by set (donut + bars)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/by-set",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "by-set"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Recent reports / scans",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/grading?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grading"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "New Analysis (Scan)",
+          "description": "Page: /user-dashboard/new-analysis\n\n**This is the core product flow — run in order.**\n\n```\nCredit balance   → the credit card widget (10 credits = 1 scan)\n1. Upload        → Quick import / PixelScope grids\n2. Create        → debits credits, identifies via Scrydex\n   (search + get candidates → the confirm screen the frontend still needs)\n3. Confirm       → HARD GATE, grading refuses until this runs\n4. Grade         → the report\n```\n\n⚠️ The frontend has no card-confirmation screen yet, but step 3 is a hard server gate. `matchScore` on candidates is Scrydex's raw scale (~0.7–1.3+), NOT a percentage — never render it as \"N% match\".",
+          "item": [
+            {
+              "name": "Credit balance (top-right widget)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/credit/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "credit",
+                    "me"
+                  ]
+                },
+                "description": "Returns the balance, `creditsPerScan` (10), and scans remaining."
+              }
+            },
+            {
+              "name": "1. Upload images",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "files",
+                      "type": "file",
+                      "src": []
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/upload",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "upload"
+                  ]
+                },
+                "description": "Copy the returned `url` values into the next request's `images` array."
+              }
+            },
+            {
+              "name": "2. Create analysis",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    const id = data._id || (data.analysis && data.analysis._id);",
+                      "    if (id) {",
+                      "        pm.collectionVariables.set('analysisId', id);",
+                      "        console.log('analysisId set to ' + id);",
+                      "    }",
+                      "}",
+                      "",
+                      "pm.test('Not rejected for credits', function () {",
+                      "    pm.expect(pm.response.code, 'a 402 means the balance is under 10 credits').to.not.equal(402);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"source\": \"standard\",\n  \"game\": \"pokemon\",\n  \"language\": \"English\",\n  \"images\": [\n    {\n      \"imageUrl\": \"https://res.cloudinary.com/demo/image/upload/front.jpg\",\n      \"side\": \"front\",\n      \"slotIndex\": 0\n    },\n    {\n      \"imageUrl\": \"https://res.cloudinary.com/demo/image/upload/back.jpg\",\n      \"side\": \"back\",\n      \"slotIndex\": 0\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/analysis",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analysis"
+                  ]
+                },
+                "description": "**Costs 10 credits.** A shortfall returns **402 Payment Required** naming the balance.\n\n`source: \"pixelscope\"` unlocks up to 10 images per side and is the precondition for the Pixel Verified badge — but it grants nothing on its own. The caller's plan decides, and a Free plan gets 403.\n\n1–20 images. `slotIndex` is 0–9 within each side."
+              }
+            },
+            {
+              "name": "2b. Get candidates (for the confirm screen)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/analysis/{{analysisId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analysis",
+                    "{{analysisId}}"
+                  ]
+                },
+                "description": "Returns the candidate matches to choose from at the confirmation step."
+              }
+            },
+            {
+              "name": "2c. Search catalogue (manual pick fallback)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const rows = pm.response.json().data || [];",
+                      "    if (rows.length && rows[0]._id) {",
+                      "        pm.collectionVariables.set('cardId', rows[0]._id);",
+                      "        console.log('cardId set to ' + rows[0].name);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/card?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "card"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Captures the first result into `cardId` for the confirm and price requests."
+              }
+            },
+            {
+              "name": "3. Confirm card  ← HARD GATE",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"cardId\": \"{{cardId}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/analysis/{{analysisId}}/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analysis",
+                    "{{analysisId}}",
+                    "confirm"
+                  ]
+                },
+                "description": "Run **Get analysis** first to see the candidate matches, then confirm one.\n\nPicking a card other than the suggested best match sets `wasCorrected` — retained as training signal.\n\nCandidate `matchScore` is Scrydex's raw scale (~0.7–1.3+, unbounded). Rank with it; it is **not** a percentage."
+              }
+            },
+            {
+              "name": "4. Grade analysis",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200 || pm.response.code === 201) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data._id) {",
+                      "        pm.collectionVariables.set('reportId', data._id);",
+                      "        console.log('reportId set to ' + data._id);",
+                      "    }",
+                      "}",
+                      "",
+                      "if (pm.response.code === 400) {",
+                      "    console.warn('400 here usually means step 3 (confirm) has not run yet.');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/grading/{{analysisId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grading",
+                    "{{analysisId}}"
+                  ]
+                },
+                "description": "Returns **400** if the analysis has no `confirmedCard`.\n\nRe-running this on an already-graded analysis returns the existing report rather than re-invoking the model.\n\nResults are cached in Redis under `grading:{modelVersion}:{imageSetHash}` with no TTL — the same image set always replays the original grade. `pixelVerified` is never cached and is recomputed per analysis."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Analysis Report",
+          "description": "Page: /user-dashboard/analysis-report\n\nRecent inspection card + recent reports list. \"Add card\" button on the report → Add to collection (scanned).",
+          "item": [
+            {
+              "name": "List my reports",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/grading?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grading"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get report (grade + 4 sub-scores + Pixel Verified)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/grading/report/{{reportId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grading",
+                    "report",
+                    "{{reportId}}"
+                  ]
+                },
+                "description": "Carries `grade` (0-10), `gradeLabel`, four sub-scores, `confidence` (0-100), `pixelVerified`, and `modelVersion`."
+              }
+            },
+            {
+              "name": "List my analyses",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/analysis?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "analysis"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Add card → collection",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data._id) pm.collectionVariables.set('collectionItemId', data._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"report\": \"{{reportId}}\",\n  \"quantity\": 1,\n  \"favorite\": false\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection"
+                  ]
+                },
+                "description": "Send `report` for a scanned card — the card is read from the report, so a client cannot attach someone else's grade to a card.\n\n`currentPrice` is deliberately not accepted; price is system-owned."
+              }
+            }
+          ]
+        },
+        {
+          "name": "My Collection",
+          "description": "Page: /user-dashboard/my-collection\n\nStats row → Summary. Card grid → List collection. Add-card modal (manual entry) → Search catalogue + Add manual. Favourite toggle → Update item.",
+          "item": [
+            {
+              "name": "Collection stats row",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/summary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "summary"
+                  ]
+                },
+                "description": "`averageGrade` covers graded entries only and is `null` when nothing is graded — not zero."
+              }
+            },
+            {
+              "name": "Card grid (filters + sort)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const rows = pm.response.json().data || [];",
+                      "    if (rows.length && rows[0]._id) {",
+                      "        pm.collectionVariables.set('collectionItemId', rows[0]._id);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection?page=1&limit=10&sortBy=addedAt&sortOrder=desc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "addedAt",
+                      "description": "addedAt | price | grade | name"
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "description": "asc | desc"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "set",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "rarity",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "favorite",
+                      "value": "true",
+                      "disabled": true
+                    },
+                    {
+                      "key": "minGrade",
+                      "value": "8",
+                      "disabled": true
+                    },
+                    {
+                      "key": "maxGrade",
+                      "value": "10",
+                      "disabled": true
+                    },
+                    {
+                      "key": "minPrice",
+                      "value": "0",
+                      "disabled": true
+                    },
+                    {
+                      "key": "maxPrice",
+                      "value": "1000",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Add-card modal: find the card",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const rows = pm.response.json().data || [];",
+                      "    if (rows.length && rows[0]._id) {",
+                      "        pm.collectionVariables.set('cardId', rows[0]._id);",
+                      "        console.log('cardId set to ' + rows[0].name);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/card?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "card"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Captures the first result into `cardId` for the confirm and price requests."
+              }
+            },
+            {
+              "name": "Add-card modal: save",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"card\": \"{{cardId}}\",\n  \"manualImageUrl\": \"https://res.cloudinary.com/demo/image/upload/card.jpg\",\n  \"externalGrade\": \"PSA 9 MINT\",\n  \"quantity\": 1\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection"
+                  ]
+                },
+                "description": "Manual entries have no AI grade. `externalGrade` records a third-party grade and is never conflated with ours."
+              }
+            },
+            {
+              "name": "Get item",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/{{collectionItemId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "{{collectionItemId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Toggle favourite / quantity",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"favorite\": true,\n  \"quantity\": 2\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/{{collectionItemId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "{{collectionItemId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Remove item",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/collection/{{collectionItemId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "collection",
+                    "{{collectionItemId}}"
+                  ]
+                },
+                "description": "Removes the entry only. The grading report and its images are retained permanently."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Price Tracker",
+          "description": "Page: /user-dashboard/price-tracker\n\n**Collector plan and above** — Free gets 403 on all three.\n\nMarket stat cards → Portfolio summary. The table's per-row 30d sparklines → Batch history (ONE call for the whole visible page, not one per row). Row detail → Card price history.",
+          "item": [
+            {
+              "name": "Market stats (4 cards)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/price/portfolio",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "price",
+                    "portfolio"
+                  ]
+                },
+                "description": "Change percentages are value-weighted, not a plain mean — a large move on a high-value card outweighs the same move on a common."
+              }
+            },
+            {
+              "name": "Table sparklines (one call per page)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/price/history?cardIds={{cardId}}&window=30d",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "price",
+                    "history"
+                  ],
+                  "query": [
+                    {
+                      "key": "cardIds",
+                      "value": "{{cardId}}",
+                      "description": "Comma-separated, capped at 50"
+                    },
+                    {
+                      "key": "window",
+                      "value": "30d",
+                      "description": "24h | 7d | 30d | 1y"
+                    }
+                  ]
+                },
+                "description": "One request for a whole table of sparklines instead of one per row.\n\nPoints are bucketed — daily for 7d/30d, monthly for 1y, raw for 24h — and each bucket carries its **closing** price. Response is a map keyed by card id; a card with no history yet comes back as `[]`."
+              }
+            },
+            {
+              "name": "Row detail / bigger chart",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/price/{{cardId}}?window=30d",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "price",
+                    "{{cardId}}"
+                  ],
+                  "query": [
+                    {
+                      "key": "window",
+                      "value": "30d",
+                      "description": "24h | 7d | 30d | 1y"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Slab Generator",
+          "description": "Page: /user-dashboard/slab-generator\n\nStyle picker → List styles. Generate → Create slab label. Regenerate button → Regenerate background. Preview pane → Preview PNG. PNG/PDF download → the export URLs on Get label.\n\n⚠️ Create currently 503s — no image-gen vendor chosen yet (docs/OPEN-QUESTIONS.md).",
+          "item": [
+            {
+              "name": "Style picker options",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab/styles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab",
+                    "styles"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create slab label",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data._id) {",
+                      "        pm.collectionVariables.set('slabLabelId', data._id);",
+                      "    }",
+                      "}",
+                      "",
+                      "if (pm.response.code === 503) {",
+                      "    console.warn('503 expected: no image-generation vendor is configured yet (docs/OPEN-QUESTIONS.md).');",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reportId\": \"{{reportId}}\",\n  \"styleId\": \"cosmic\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab"
+                  ]
+                },
+                "description": "Styles: `cosmic`, `inferno`, `aurora`, `vintage`.\n\nGeometry is deliberately not accepted in the body — dimensions are server-owned so a client cannot resize the card window.\n\n**Currently returns 503** because no image-generation vendor has been chosen. That is a pending client decision, not a bug."
+              }
+            },
+            {
+              "name": "List my labels",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get label (export PNG/PDF URLs)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab/{{slabLabelId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab",
+                    "{{slabLabelId}}"
+                  ]
+                },
+                "description": "Includes `exportPngUrl` and `exportPdfUrl`."
+              }
+            },
+            {
+              "name": "Regenerate background",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"styleId\": \"aurora\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab/{{slabLabelId}}/regenerate",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab",
+                    "{{slabLabelId}}",
+                    "regenerate"
+                  ]
+                },
+                "description": "Replaces only the AI background and bumps `version`. The card image and label text are composited server-side and never move."
+              }
+            },
+            {
+              "name": "Preview pane (returns PNG, not JSON)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/slab/{{slabLabelId}}/preview",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "slab",
+                    "{{slabLabelId}}",
+                    "preview"
+                  ]
+                },
+                "description": "Returns `image/png` bytes, not JSON. Postman renders it in the preview pane."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subscription",
+          "description": "Page: /user-dashboard/subscription\n\nPlan cards → List plans. Current plan banner + renewal date → My subscription. Upgrade button → Create checkout (open checkoutUrl in browser). Billing history → My transactions.\n\nYearly charges effective-monthly ×12 up front, but credits still refresh monthly.",
+          "item": [
+            {
+              "name": "Plan cards (always exactly 4)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const plans = pm.response.json().data || [];",
+                      "    const paid = plans.find(function (p) { return p.name !== 'Free'; });",
+                      "    if (paid && paid._id) {",
+                      "        pm.collectionVariables.set('planId', paid._id);",
+                      "        console.log('planId set to ' + paid.name);",
+                      "    }",
+                      "}",
+                      "",
+                      "pm.test('Exactly four tiers exist', function () {",
+                      "    pm.expect((pm.response.json().data || []).length).to.eql(4);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/plan",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "plan"
+                  ]
+                },
+                "description": "Free, Collector, Pro, Enterprise. Always exactly four — there is no create or delete route.\n\nCaptures a paid plan's id into `planId` for the checkout request."
+              }
+            },
+            {
+              "name": "Current plan + renewal + credits",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/subscription/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "subscription",
+                    "me"
+                  ]
+                },
+                "description": "Plan, renewal date, and credit position in one call."
+              }
+            },
+            {
+              "name": "Upgrade → Stripe checkout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"planId\": \"{{planId}}\",\n  \"interval\": \"monthly\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/subscription/checkout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "subscription",
+                    "checkout"
+                  ]
+                },
+                "description": "Returns `{ checkoutUrl, sessionId }` — open `checkoutUrl` in a browser to complete payment.\n\n`interval` is `monthly` or `yearly`. The **Free** plan is rejected with 400: it is the implicit default for any account without a paid subscription.\n\nA subscription is only ever activated by a verified Stripe webhook, never by this call."
+              }
+            },
+            {
+              "name": "Cancel (at period end)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/subscription/cancel",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "subscription",
+                    "cancel"
+                  ]
+                },
+                "description": "Cancels at period end, not immediately — the user keeps access through the period they paid for."
+              }
+            },
+            {
+              "name": "Billing history",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/transaction/me?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "transaction",
+                    "me"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Credit usage history",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/credit/me/ledger?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "credit",
+                    "me",
+                    "ledger"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Support",
+          "description": "Page: /user-dashboard/support\n\nNew-ticket form → Create ticket. My tickets table → My tickets. Thread view → Get ticket + Reply (a user reply reopens an answered ticket).",
+          "item": [
+            {
+              "name": "Create ticket",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const data = pm.response.json().data || {};",
+                      "    if (data._id) pm.collectionVariables.set('ticketId', data._id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"subject\": \"Grade looks wrong on my Charizard\",\n  \"message\": \"The centering score seems low compared to the photos I uploaded.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support"
+                  ]
+                },
+                "description": "`subject` 3-150 chars, `message` 1-5000."
+              }
+            },
+            {
+              "name": "My tickets",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get ticket (thread)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "{{ticketId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Reply to ticket",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Thanks — here are two more photos under better lighting.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/message",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "{{ticketId}}",
+                    "message"
+                  ]
+                },
+                "description": "A user reply reopens an answered ticket, so a follow-up question is not lost."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notifications (bell + settings)",
+          "description": "Header bell dropdown + /user-dashboard/settings/notification.\n\n⚠️ The current settings page shows toggles from a different template (\"Rule Triggered\", \"Session Locked\"). The real preference set is exactly the five booleans in Update settings — that page needs rewriting, not wiring.",
+          "item": [
+            {
+              "name": "Bell badge count",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/unread-count",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "unread-count"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Bell dropdown / list",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const rows = pm.response.json().data || [];",
+                      "    if (rows.length && rows[0]._id) {",
+                      "        pm.collectionVariables.set('notificationId', rows[0]._id);",
+                      "    }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "Types: `grade_ready`, `price_alert`, `subscription`, `support`, `system`.\n\nThere is no create route — notifications are minted server-side only."
+              }
+            },
+            {
+              "name": "Mark as read",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/{{notificationId}}/read",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "{{notificationId}}",
+                    "read"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Mark all as read",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/read-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "read-all"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Delete notification",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/{{notificationId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "{{notificationId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Settings page: load",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/settings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "settings"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Settings page: save (the ONLY 5 real toggles)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inappEnabled\": true,\n  \"emailGradeReady\": true,\n  \"emailPriceAlert\": false,\n  \"emailSubscription\": true,\n  \"emailSupport\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/notification/settings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "notification",
+                    "settings"
+                  ]
+                },
+                "description": "These five are the entire set of preferences. The frontend's notification settings page currently shows unrelated toggles from a different template and needs rewriting."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settings / Profile",
+          "description": "Pages: /user-dashboard/settings/{profile,change-password,security,data-privacy}\n\nProfile → Get + Update. Change password / Security → Change password (or Set password for Google-born accounts). Data & privacy → Delete my account (soft delete; images and reports are retained as training data).",
+          "item": [
+            {
+              "name": "Get my profile",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update profile",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Updated Name\",\n  \"phone\": \"+8801712345678\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "{{userId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Change password",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"oldPassword\": \"Password@123\",\n  \"newPassword\": \"NewPassword@123\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/change-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "change-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Set password (Google accounts)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password@123\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/auth/set-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "auth",
+                    "set-password"
+                  ]
+                },
+                "description": "For accounts created through Google OAuth that have no password yet."
+              }
+            },
+            {
+              "name": "Delete account (data-privacy page)",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "me"
+                  ]
+                },
+                "description": "Soft delete. Uploaded images and grading reports are retained permanently as training data."
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Admin Dashboard",
+      "description": "Everything under /admin. **Log in as admin or super_admin first** — a `user` token gets 403 on every request here.",
+      "item": [
+        {
+          "name": "Dashboard Home",
+          "description": "Page: /admin\n\nStat cards row → Admin overview (totalUsers, subscribedUsers, newSubscribers, totalEarnings + mrr). Recent users table → List users.\n\n`delta` is null when last month was zero — render no chip. `subscribedUsers.delta` undercounts churn (documented in the service).",
+          "item": [
+            {
+              "name": "Admin overview (4 stat cards + MRR)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/dashboard/admin",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "dashboard",
+                    "admin"
+                  ]
+                },
+                "description": "`totalUsers`, `subscribedUsers`, `newSubscribers`, `totalEarnings`, `mrr`.\n\n`totalEarnings.value` is lifetime revenue; its delta compares this month against last.\n\n**`subscribedUsers.delta` is approximate** — subscriptions store current status, not history, so churn is invisible to it."
+              }
+            },
+            {
+              "name": "Recent users table",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/all-users?page=1&limit=10&searchTerm=",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "all-users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "description": "Matches name or email"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Users",
+          "description": "Pages: /admin/users and /admin/users/[userId]\n\nTable → List users (searchTerm matches name/email). Block modal → Block user (status + blockReason; unblock = status active). Details page plan/credit panel → User ledger.\n\n⚠️ The table's Country and State columns have no backing field on the user model — nothing to wire yet.",
+          "item": [
+            {
+              "name": "Users table (search + paginate)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/all-users?page=1&limit=10&searchTerm=",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "all-users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "description": "Matches name or email"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "User details page",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "{{userId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Block modal (reason required)",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"blocked\",\n  \"blockReason\": \"Violating the terms of service\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "{{userId}}"
+                  ]
+                },
+                "description": "Unblock by sending `{ \"status\": \"active\" }`."
+              }
+            },
+            {
+              "name": "[Admin] Delete user",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/user/{{userId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "user",
+                    "{{userId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Details: credit usage",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/credit/{{userId}}/ledger",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "credit",
+                    "{{userId}}",
+                    "ledger"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Details: grant/deduct credits",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"amount\": 50,\n  \"note\": \"Goodwill credit after a failed scan\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/credit/{{userId}}/adjust",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "credit",
+                    "{{userId}}",
+                    "adjust"
+                  ]
+                },
+                "description": "Non-zero integer; negative values deduct.\n\nThis is one of only three ways credits enter a wallet — the others are a scheduled grant and a refund. There is deliberately no user-facing grant route."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subscribed Users",
+          "description": "Page: /admin/subscribed-users\n\nDriven from subscriptions, not accounts — defaults to active + past-due.",
+          "item": [
+            {
+              "name": "Subscribed users table",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/subscription/subscribers?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "subscription",
+                    "subscribers"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "searchTerm",
+                      "value": "",
+                      "disabled": true,
+                      "description": "Matches user name or email"
+                    },
+                    {
+                      "key": "status",
+                      "value": "active",
+                      "disabled": true,
+                      "description": "active | canceled | past_due | expired"
+                    },
+                    {
+                      "key": "plan",
+                      "value": "",
+                      "disabled": true
+                    }
+                  ]
+                },
+                "description": "Defaults to active plus past-due. Driven from subscriptions rather than accounts, since \"subscribed\" is not a field on a user."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Earnings",
+          "description": "Page: /admin/earnings\n\nStat cards → Earnings (totals) + Subscription stats (MRR, active subs). Chart → Revenue by month. Transactions table → All transactions.",
+          "item": [
+            {
+              "name": "Earnings totals",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/transaction/earnings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "transaction",
+                    "earnings"
+                  ]
+                },
+                "description": "`grossRevenue`, `subscriptionRevenue`, `slabOrderRevenue`, counts, and refunds."
+              }
+            },
+            {
+              "name": "MRR + active subscriptions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/subscription/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "subscription",
+                    "stats"
+                  ]
+                },
+                "description": "`activeSubscriptions`, `mrr`, `newThisMonth`, `newLastMonth`.\n\nMRR takes `priceYearly` verbatim for yearly subscribers because that field is already the effective monthly rate. Past-due counts toward neither figure."
+              }
+            },
+            {
+              "name": "Earnings chart",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/transaction/revenue-by-month",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "transaction",
+                    "revenue-by-month"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Transactions table",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/transaction?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "transaction"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Subscription Plans",
+          "description": "Page: /admin/subscription-plan\n\nEdit-only: the four tiers are fixed, `name` is immutable, there is no create or delete. `creditAmount: null` = unlimited (Enterprise). Mirror any change into pixel-grade-ai/src/config/plans.ts.",
+          "item": [
+            {
+              "name": "Plan cards (admin view)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/plan/admin",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "plan",
+                    "admin"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get one plan",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/plan/{{planId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "plan",
+                    "{{planId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Edit plan modal → save",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"priceMonthly\": 10,\n  \"priceYearly\": 8,\n  \"creditAmount\": 1500,\n  \"creditInterval\": \"monthly\",\n  \"pixelscope\": true,\n  \"priceTracking\": true,\n  \"features\": [\"PixelScope scans\", \"Price tracking\"]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/plan/{{planId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "plan",
+                    "{{planId}}"
+                  ]
+                },
+                "description": "Edit only. **`name` cannot be changed** and there is no create or delete route — the four tiers are fixed.\n\n`creditAmount: null` means unlimited (Enterprise).\n\n`priceYearly` is the **effective monthly** rate; Stripe charges it ×12 up front. Credits still refresh monthly regardless."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Support",
+          "description": "Page: /admin/support\n\nTickets table → All tickets. Reply modal → Reply to ticket. Status dropdown → Update status (open | answered | resolved | closed).",
+          "item": [
+            {
+              "name": "Tickets table",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/all?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "all"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Ticket thread",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "{{ticketId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Reply modal",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"message\": \"Thanks — here are two more photos under better lighting.\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/message",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "{{ticketId}}",
+                    "message"
+                  ]
+                },
+                "description": "A user reply reopens an answered ticket, so a follow-up question is not lost."
+              }
+            },
+            {
+              "name": "Status dropdown",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"status\": \"resolved\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/support/{{ticketId}}/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "support",
+                    "{{ticketId}}",
+                    "status"
+                  ]
+                },
+                "description": "`open` | `answered` | `resolved` | `closed`."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Settings / CMS",
+          "description": "Pages: /admin/settings/{about-us,terms,privacy-policy}\n\nRich-text editor → Get page (load) + Update page (save). Slugs: about, terms, privacy.\n\n⚠️ The platform-settings form (site name, maintenance mode…) has NO backend — it labels itself as demo fields.",
+          "item": [
+            {
+              "name": "[Admin] List pages",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/cms",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "cms"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Editor: load page",
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/cms/about",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "cms",
+                    "about"
+                  ]
+                },
+                "description": "Slugs: `about`, `terms`, `privacy`. Public — backs the marketing pages."
+              }
+            },
+            {
+              "name": "Editor: save page",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"htmlContent\": \"<h1>About PixelGrade AI</h1><p>AI-powered trading card grading.</p>\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/cms/about",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "cms",
+                    "about"
+                  ]
+                },
+                "description": "Max 200,000 characters."
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ops & Audit",
+          "description": "No dedicated page yet — recovery and audit tools.",
+          "item": [
+            {
+              "name": "Activity log",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/activity-log?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "activity-log"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Force a price sweep",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/price/refresh?limit=200",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "price",
+                    "refresh"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "200"
+                    }
+                  ]
+                },
+                "description": "Same sweep the hourly cron runs, oldest-priced cards first. Useful for recovery after an outage."
+              }
+            },
+            {
+              "name": "Every grading report",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/grading/all?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "grading",
+                    "all"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Reference & System",
+      "description": "Not tied to a screen.",
+      "item": [
+        {
+          "name": "Card sets (filter options)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/card/sets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "card",
+                "sets"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Card detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/card/{{cardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "card",
+                "{{cardId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Health check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Probes Mongo and Redis. Returns **503 when a dependency is down** — that is the endpoint working correctly, not the endpoint failing."
+          }
+        },
+        {
+          "name": "Liveness",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "No DB or Redis dependency — answers as long as the process is up."
+          }
+        },
+        {
+          "name": "Stripe webhook (reference only)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Stripe-Signature",
+                "value": "t=...,v1=..."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook/stripe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhook",
+                "stripe"
+              ]
+            },
+            "description": "**Cannot be exercised from Postman.** Authenticity comes from an HMAC over the exact raw bytes Stripe sent, so a hand-made request will always fail signature verification.\n\nUse the Stripe CLI instead:\n\n```\nstripe listen --forward-to localhost:5000/webhook/stripe\nstripe trigger checkout.session.completed\n```\n\nHandled events: `checkout.session.completed`, `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.deleted`."
+          }
+        }
+      ]
+    }
+  ]
+}
