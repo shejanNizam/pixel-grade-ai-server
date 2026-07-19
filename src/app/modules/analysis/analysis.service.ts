@@ -3,7 +3,7 @@ import httpStatus from "http-status";
 import {
   PIXELSCOPE_MAX_IMAGES_PER_SIDE,
   REDIS_KEYS,
-  STANDARD_MAX_IMAGES,
+  STANDARD_MAX_IMAGES_PER_SIDE,
 } from "../../constants";
 import { redisClient } from "../../config/redis.config";
 import AppError from "../../errorHelpers/AppError";
@@ -92,33 +92,35 @@ const writeIdentCache = async (
   }
 };
 
-/** Enforces the per-mode image limits from the requirements. */
-const validateImageSet = (source: UploadSource, images: UploadedImage[]) => {
+/**
+ * Enforces the per-mode image limits. Both modes are per-side rules:
+ * standard = 1 front + 1 back (the Quick Import screen), PixelScope = up to 10
+ * per side. Exported for unit testing — it is the scan flow's front door.
+ */
+export const validateImageSet = (
+  source: UploadSource,
+  images: UploadedImage[],
+) => {
   if (images.length === 0) {
     throw new AppError(httpStatus.BAD_REQUEST, "At least one image is required.");
-  }
-
-  if (source === UploadSource.standard) {
-    if (images.length > STANDARD_MAX_IMAGES) {
-      throw new AppError(
-        httpStatus.BAD_REQUEST,
-        `A standard scan accepts ${STANDARD_MAX_IMAGES} image. Use PixelScope for multi-image uploads.`,
-      );
-    }
-    return;
   }
 
   const perSide = { front: 0, back: 0 };
   for (const image of images) {
     perSide[image.side] += 1;
   }
-  if (
-    perSide.front > PIXELSCOPE_MAX_IMAGES_PER_SIDE ||
-    perSide.back > PIXELSCOPE_MAX_IMAGES_PER_SIDE
-  ) {
+
+  const maxPerSide =
+    source === UploadSource.standard
+      ? STANDARD_MAX_IMAGES_PER_SIDE
+      : PIXELSCOPE_MAX_IMAGES_PER_SIDE;
+
+  if (perSide.front > maxPerSide || perSide.back > maxPerSide) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      `PixelScope accepts at most ${PIXELSCOPE_MAX_IMAGES_PER_SIDE} images per side.`,
+      source === UploadSource.standard
+        ? "A standard scan accepts one front and one back image. Use PixelScope for multi-image uploads."
+        : `PixelScope accepts at most ${PIXELSCOPE_MAX_IMAGES_PER_SIDE} images per side.`,
     );
   }
 };

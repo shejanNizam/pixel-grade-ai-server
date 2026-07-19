@@ -50,8 +50,9 @@ export interface ICardAnalysisInitial {
 
 export type ICardAnalysis = ICardAnalysisInitial & Document;
 
-/** One row per uploaded image. A standard scan has exactly one; a PixelScope
- *  upload has up to ten per side. Retained permanently as training data. */
+/** One row per uploaded image. A standard scan has one per side (front +
+ *  back); a PixelScope upload has up to ten per side. Retained permanently as
+ *  training data. */
 export interface IAnalysisImageInitial {
   _id?: Types.ObjectId;
   analysis: Types.ObjectId;

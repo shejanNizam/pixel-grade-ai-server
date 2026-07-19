@@ -1,4 +1,11 @@
-export const excludeField = ["searchTerm", "sort", "fields", "page", "limit", "isDeleted"];
+export const excludeField = [
+  "searchTerm",
+  "sort",
+  "fields",
+  "page",
+  "limit",
+  "isDeleted",
+];
 
 // ---------------------------------------------------------------------------
 // Credits
@@ -25,8 +32,21 @@ export const PIXEL_VERIFIED_MIN_CONFIDENCE = 90;
 /** Upper bound on images per side in a PixelScope upload (front + back = 20 max). */
 export const PIXELSCOPE_MAX_IMAGES_PER_SIDE = 10;
 
-/** A standard scan is a single image. */
-export const STANDARD_MAX_IMAGES = 1;
+/** A standard scan is one photo per side — front + back, matching the Quick
+ *  Import screen, which requires both before it enables the scan button.
+ *  Two fronts is NOT a valid standard scan; the limit is per side, not total.
+ *  (Identification still sends only the first image; the second one improves
+ *  grading, which otherwise caps its confidence on an unseen back.) */
+export const STANDARD_MAX_IMAGES_PER_SIDE = 1;
+
+// ---------------------------------------------------------------------------
+// Price alerts
+// ---------------------------------------------------------------------------
+
+/** A card must move at least this much (percent, either direction) over 24h
+ *  before holders are notified. With the daily refresh cadence this also caps
+ *  alerts at one per card per day — no separate throttle needed. */
+export const PRICE_ALERT_THRESHOLD_PCT = 10;
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 

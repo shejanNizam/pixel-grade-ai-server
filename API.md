@@ -162,7 +162,7 @@ server-side gate, not a UI step — there is no flag that bypasses it.
 
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
-| POST | `/analysis` | Any + credits | `{ images: [{ imageUrl, side?, slotIndex? }], source?, game?, language? }`. 1–20 images |
+| POST | `/analysis` | Any + credits | `{ images: [{ imageUrl, side?, slotIndex? }], source?, game?, language? }`. Standard: max **1 per side** (front + back). PixelScope: up to 10 per side |
 | GET | `/analysis` | Any | The caller's analyses, paginated |
 | GET | `/analysis/:id` | Any | Includes candidate matches for the confirmation step |
 | PATCH | `/analysis/:id/confirm` | Any | `{ cardId }` |
@@ -178,6 +178,11 @@ server-side gate, not a UI step — there is no flag that bypasses it.
   own — the caller's plan is what decides, and a Free plan is rejected.
 - Candidate `matchScore` is **Scrydex's raw scale (~0.7–1.3+, unbounded), not a
   percentage.** Rank with it. Never render it as "N% match".
+- **Dev mode:** with `MOCK_SCRYDEX=true` (honored only under
+  `NODE_ENV=development`), identification returns three fixed `mock-`-prefixed
+  candidates and pricing returns fabricated daily-drifting quotes — so the full
+  scan flow and price tracker are testable before the real Scrydex credentials
+  arrive. Turn the flag off the moment they do.
 
 ### Grading — `/grading`
 
@@ -186,6 +191,7 @@ server-side gate, not a UI step — there is no flag that bypasses it.
 | POST | `/grading/:analysisId` | Any | Grades a confirmed analysis. **400 if not yet confirmed.** Re-grading an already-graded analysis returns the existing report rather than re-running the model |
 | GET | `/grading` | Any | The caller's reports |
 | GET | `/grading/report/:id` | Any | One report |
+| GET | `/grading/report/:id/pdf` | Any | **Returns `application/pdf` bytes.** Watermarked when the report owner's plan has `watermarkReports` (Free); rendered fresh per download so the watermark tracks the current plan |
 | GET | `/grading/all` | Admin | Every report across the platform |
 
 A report carries `grade` (0–10), `gradeLabel`, four sub-scores (`scoreSurface`,

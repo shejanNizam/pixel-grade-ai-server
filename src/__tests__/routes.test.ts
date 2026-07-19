@@ -23,6 +23,7 @@ const GUARDED_ROUTES = [
   "/api/v1/price/history",
   "/api/v1/subscription/subscribers",
   "/api/v1/subscription/stats",
+  "/api/v1/grading/report/665f1c2ab7e6d21f3c9a1b2d/pdf",
 ];
 
 describe("dashboard and reporting routes", () => {

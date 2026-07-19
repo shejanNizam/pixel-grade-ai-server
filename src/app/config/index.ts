@@ -51,6 +51,10 @@ const envSchema = z.object({
   SCRYDEX_API_KEY: z.string().optional(),
   SCRYDEX_TEAM_ID: z.string().optional(),
   SCRYDEX_BASE_URL: z.string().default("https://api.scrydex.com"),
+  /** Dev-only mock for identification + pricing while the client's Scrydex
+   *  credentials are pending. DOUBLE-GATED: honored only when NODE_ENV is
+   *  "development" — in production this flag is dead weight by design. */
+  MOCK_SCRYDEX: z.enum(["true", "false"]).default("false"),
 
   PRICING_API_KEY: z.string().optional(),
   PRICING_SOURCE: z
@@ -135,6 +139,9 @@ export const configs = {
     api_key: env.SCRYDEX_API_KEY,
     team_id: env.SCRYDEX_TEAM_ID,
     base_url: env.SCRYDEX_BASE_URL,
+    /** The NODE_ENV half of the double gate lives HERE, not at call sites —
+     *  so no consumer can accidentally honor the flag in production. */
+    mock: env.MOCK_SCRYDEX === "true" && env.NODE_ENV === "development",
   },
 
   PRICING: {

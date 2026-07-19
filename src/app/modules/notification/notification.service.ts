@@ -1,8 +1,12 @@
 import httpStatus from "http-status";
 import { Types } from "mongoose";
+import { configs } from "../../config/index";
 import AppError from "../../errorHelpers/AppError";
 import { QueryBuilder } from "../../utils/QueryBuilder";
+import { logger } from "../../utils/logger";
+import { sendEmail } from "../../utils/sendEmail";
 import { emitToUser } from "../../../socket/socket";
+import { User } from "../user/user.model";
 import {
   INotification,
   INotificationSettings,
@@ -18,13 +22,69 @@ const getOrCreateSettings = async (userId: string) => {
   return NotificationSettings.create({ user: userId });
 };
 
+/** Which email preference governs each notification type. `system` is
+ *  deliberately absent — it has no user-facing toggle, so it stays in-app only
+ *  rather than becoming unblockable email. */
+const EMAIL_PREF_BY_TYPE: Partial<
+  Record<NotifType, keyof INotificationSettings>
+> = {
+  [NotifType.grade_ready]: "emailGradeReady",
+  [NotifType.price_alert]: "emailPriceAlert",
+  [NotifType.subscription]: "emailSubscription",
+  [NotifType.support]: "emailSupport",
+};
+
+const emailConfigured = (): boolean =>
+  Boolean(configs.EMAIL_SENDER.smtp_host && configs.EMAIL_SENDER.smtp_user);
+
+/**
+ * Fire-and-forget email delivery. Never awaited by the caller's business flow
+ * and never throws: a down SMTP server must not fail the grading, billing, or
+ * support action that triggered the notification — the in-app copy is the
+ * source of truth, email is best-effort.
+ */
+const dispatchEmail = async (
+  userId: string,
+  settings: INotificationSettings,
+  type: NotifType,
+  title: string,
+  body?: string,
+): Promise<void> => {
+  try {
+    if (!emailConfigured()) return;
+
+    const prefKey = EMAIL_PREF_BY_TYPE[type];
+    if (!prefKey || !settings[prefKey]) return;
+
+    const user = await User.findById(userId).select("email isDeleted");
+    if (!user?.email || user.isDeleted) return;
+
+    await sendEmail({
+      to: user.email,
+      subject: `PixelGrade AI — ${title}`,
+      templateName: "notification",
+      templateData: {
+        title,
+        body: body ?? "",
+        dashboardUrl: `${configs.frontend_url}/user-dashboard`,
+      },
+    });
+  } catch (error) {
+    logger.error("Notification email dispatch failed", { userId, type, error });
+  }
+};
+
 /**
  * Internal — called by other modules (grade ready, price alert, subscription
  * renewal, support reply), never exposed as a route. A client that could mint
  * its own notifications could forge a "grade ready" or a billing message.
  *
- * Respects the user's in-app preference: when disabled, nothing is stored, so
- * the unread badge stays honest rather than counting hidden rows.
+ * Two independent channels, each behind its own preference:
+ *  - in-app: when `inappEnabled` is off nothing is stored, so the unread badge
+ *    stays honest rather than counting hidden rows.
+ *  - email: governed per-type by the `email*` flags; sent best-effort in the
+ *    background even when in-app is off, since the user opted into each
+ *    channel separately.
  */
 const create = async (
   userId: string | Types.ObjectId,
@@ -33,6 +93,10 @@ const create = async (
   body?: string,
 ) => {
   const settings = await getOrCreateSettings(String(userId));
+
+  // Deliberately not awaited — see dispatchEmail.
+  void dispatchEmail(String(userId), settings, type, title, body);
+
   if (!settings.inappEnabled) return null;
 
   const notification = await Notification.create({

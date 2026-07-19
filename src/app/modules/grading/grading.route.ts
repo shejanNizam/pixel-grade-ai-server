@@ -103,4 +103,36 @@ router.get(
   GradingControllers.getReport,
 );
 
+/**
+ * @swagger
+ * /grading/report/{id}/pdf:
+ *   get:
+ *     tags: [Grading]
+ *     summary: Download the report as a PDF
+ *     description: >
+ *       Returns application/pdf bytes, not JSON. Watermarked when the report
+ *       OWNER's plan has watermarkReports (Free by default) — rendered fresh
+ *       per download so the watermark always reflects the current plan.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: PDF file
+ *       403:
+ *         description: Not your report
+ *       404:
+ *         description: Report not found
+ */
+router.get(
+  "/report/:id/pdf",
+  checkAuth(...anyUser),
+  GradingControllers.downloadReportPdf,
+);
+
 export const GradingRoutes = router;

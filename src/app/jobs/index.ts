@@ -1,4 +1,5 @@
 import cron from "node-cron";
+import { withCronLock } from "../utils/cronLock";
 import { FREE_DAILY_CREDITS } from "../constants";
 import { CreditWallet } from "../modules/credit/credit.model";
 import { CreditServices } from "../modules/credit/credit.service";
@@ -35,7 +36,8 @@ import { logger } from "../utils/logger";
 const DAILY_PRICE_BATCH = 100;
 
 const startPriceRefresh = () =>
-  cron.schedule("30 0 * * *", async () => {
+  cron.schedule("30 0 * * *", () =>
+    withCronLock("price-refresh", 60 * 30, async () => {
     try {
       const result = await PriceServices.refreshStalest(DAILY_PRICE_BATCH);
       if (!result.skipped) {
@@ -47,7 +49,8 @@ const startPriceRefresh = () =>
     } catch (error) {
       logger.error("Price refresh job failed", { error });
     }
-  });
+    }),
+  );
 
 /**
  * Daily Free-plan top-up, 00:05.
@@ -57,7 +60,8 @@ const startPriceRefresh = () =>
  * the grant is a reset to the daily amount, not an addition.
  */
 const startDailyCreditGrant = () =>
-  cron.schedule("5 0 * * *", async () => {
+  cron.schedule("5 0 * * *", () =>
+    withCronLock("daily-credit-grant", 60 * 30, async () => {
     try {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
@@ -97,7 +101,8 @@ const startDailyCreditGrant = () =>
     } catch (error) {
       logger.error("Daily credit grant job failed", { error });
     }
-  });
+    }),
+  );
 
 /**
  * Monthly paid-plan refresh, 1st of the month at 00:10.
@@ -108,7 +113,8 @@ const startDailyCreditGrant = () =>
  * here — the plan's credit interval is what drives the grant.
  */
 const startMonthlyCreditGrant = () =>
-  cron.schedule("10 0 1 * *", async () => {
+  cron.schedule("10 0 1 * *", () =>
+    withCronLock("monthly-credit-grant", 60 * 30, async () => {
     try {
       const wallets = await CreditWallet.find().select("user");
 
@@ -135,7 +141,8 @@ const startMonthlyCreditGrant = () =>
     } catch (error) {
       logger.error("Monthly credit grant job failed", { error });
     }
-  });
+    }),
+  );
 
 export const startJobs = () => {
   startPriceRefresh();

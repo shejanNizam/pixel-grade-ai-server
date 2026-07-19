@@ -10,6 +10,7 @@ import { AnalysisStatus } from "../analysis/analysis.interface";
 import { AnalysisImage, CardAnalysis } from "../analysis/analysis.model";
 import { Card } from "../card/card.model";
 import { CreditServices } from "../credit/credit.service";
+import { buildReportPdf, ReportCardInfo } from "./grading.pdf";
 import { NotifType } from "../notification/notification.interface";
 import { NotificationServices } from "../notification/notification.service";
 import { UserRole } from "../user/user.interface";
@@ -193,10 +194,26 @@ const shouldWatermark = async (userId: string): Promise<boolean> => {
   return plan.watermarkReports;
 };
 
+/**
+ * Renders the report as a PDF, watermarked per the OWNER's plan — not the
+ * requester's, so an admin downloading a Free user's report sees exactly what
+ * that user would. Rendered fresh on every download rather than cached: the
+ * watermark must track the owner's current plan, and a stored file would
+ * fossilise whichever plan they had when it was first generated.
+ */
+const getReportPdf = async (reportId: string, userId: string, role: string) => {
+  const report = await getReport(reportId, userId, role);
+  const watermark = await shouldWatermark(String(report.user));
+  const card = report.card as unknown as ReportCardInfo;
+  const pdf = await buildReportPdf(report, card ?? {}, watermark);
+  return { pdf, reportId: String(report._id) };
+};
+
 export const GradingServices = {
   gradeAnalysis,
   getMyReports,
   getReport,
   getAllReports,
   shouldWatermark,
+  getReportPdf,
 };

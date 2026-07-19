@@ -1,10 +1,13 @@
 import httpStatus from "http-status";
 import { PipelineStage, Types } from "mongoose";
+import { PRICE_ALERT_THRESHOLD_PCT } from "../../constants";
 import AppError from "../../errorHelpers/AppError";
 import { PricingProvider } from "../../services/pricing.provider";
 import { logger } from "../../utils/logger";
 import { Card } from "../card/card.model";
 import { CollectionItem } from "../collection/collection.model";
+import { NotifType } from "../notification/notification.interface";
+import { NotificationServices } from "../notification/notification.service";
 import { PriceHistory } from "./price.model";
 
 /** Supported chart windows. `1y` backs the one-year graph. */
@@ -174,6 +177,38 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
       ...(change30d !== undefined ? { change30d } : {}),
     },
   );
+
+  // Significant daily move → alert everyone holding the card. Runs after the
+  // denormalised prices are written so a user clicking through from the alert
+  // sees numbers that agree with it. Best-effort: an alert failure must not
+  // fail the price write (the sweep counts this card as refreshed either way).
+  if (
+    change24h !== undefined &&
+    Math.abs(change24h) >= PRICE_ALERT_THRESHOLD_PCT
+  ) {
+    try {
+      const holders = await CollectionItem.distinct("user", {
+        card: card._id,
+      });
+      const direction = change24h > 0 ? "up" : "down";
+      await Promise.all(
+        holders.map((holder) =>
+          NotificationServices.create(
+            holder,
+            NotifType.price_alert,
+            `${card.name} is ${direction} ${Math.abs(change24h).toFixed(1)}% today`,
+            `Now $${quote.price.toFixed(2)}. You hold this card in your collection.`,
+          ),
+        ),
+      );
+    } catch (error) {
+      logger.error("Price alert dispatch failed", {
+        cardId: String(card._id),
+        change24h,
+        error,
+      });
+    }
+  }
 
   return quote;
 };

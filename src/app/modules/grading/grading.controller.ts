@@ -62,9 +62,29 @@ const getAllReports = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/** Streams PDF bytes, not the JSON envelope — this is a file download. */
+const downloadReportPdf = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId, role } = req.user as JwtPayload;
+  const { pdf, reportId } = await GradingServices.getReportPdf(
+    req.params.id as string,
+    userId as string,
+    role as string,
+  );
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="pixelgrade-report-${reportId}.pdf"`,
+  );
+  // The watermark tracks the owner's current plan, so this must not be cached.
+  res.setHeader("Cache-Control", "no-store");
+  res.send(pdf);
+});
+
 export const GradingControllers = {
   gradeAnalysis,
   getMyReports,
   getReport,
   getAllReports,
+  downloadReportPdf,
 };

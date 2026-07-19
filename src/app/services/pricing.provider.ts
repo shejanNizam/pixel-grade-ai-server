@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import { configs } from "../config/index";
 import AppError from "../errorHelpers/AppError";
 import { PriceSource } from "../modules/price/price.interface";
+import { ScrydexMock } from "./scrydex.mock";
 
 /**
  * Market pricing.
@@ -18,9 +19,15 @@ export interface PriceQuote {
   capturedAt: Date;
 }
 
-const isConfigured = (): boolean => Boolean(configs.PRICING.api_key);
+/** Mock counts as configured so the daily refresh sweep runs in dev and the
+ *  price tracker has moving data to render. */
+const isConfigured = (): boolean =>
+  ScrydexMock.enabled() || Boolean(configs.PRICING.api_key);
 
 const getPrice = async (scrydexCardId: string): Promise<PriceQuote | null> => {
+  // Dev-only — see scrydex.mock.ts for the double gate.
+  if (ScrydexMock.enabled()) return ScrydexMock.getPrice(scrydexCardId);
+
   if (!isConfigured()) {
     throw new AppError(
       httpStatus.SERVICE_UNAVAILABLE,

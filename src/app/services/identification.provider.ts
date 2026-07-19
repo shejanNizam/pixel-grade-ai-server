@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import { configs } from "../config/index";
 import AppError from "../errorHelpers/AppError";
 import { CardGame } from "../modules/card/card.interface";
+import { ScrydexMock } from "./scrydex.mock";
 
 /**
  * Card identification — Scrydex Vision.
@@ -114,6 +115,11 @@ const identify = async (
   imageUrls: string[],
   game: CardGame,
 ): Promise<IdentificationResult> => {
+  // Dev-only escape hatch while Scrydex credentials are pending — see
+  // scrydex.mock.ts for the double gate. Checked before isConfigured so a
+  // mocked dev environment needs no fake credentials.
+  if (ScrydexMock.enabled()) return ScrydexMock.identify(game);
+
   if (!isConfigured()) {
     throw new AppError(
       httpStatus.SERVICE_UNAVAILABLE,
