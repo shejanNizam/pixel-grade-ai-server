@@ -23,6 +23,26 @@ const getCardPrice = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/** Sparklines for a whole table in one call — see getHistoryBatch. */
+const getHistoryBatch = catchAsync(async (req: Request, res: Response) => {
+  const raw = req.query.cardIds;
+  const cardIds = (Array.isArray(raw) ? raw.join(",") : String(raw ?? ""))
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  const result = await PriceServices.getHistoryBatch(
+    cardIds,
+    parseWindow(req.query.window),
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Price history retrieved successfully!",
+    data: result,
+  });
+});
+
 const getPortfolioSummary = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
   const result = await PriceServices.getPortfolioSummary(userId as string);
@@ -49,6 +69,7 @@ const refreshNow = catchAsync(async (req: Request, res: Response) => {
 
 export const PriceControllers = {
   getCardPrice,
+  getHistoryBatch,
   getPortfolioSummary,
   refreshNow,
 };

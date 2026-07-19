@@ -6,6 +6,7 @@ import { CardRoutes } from "../modules/card/card.route";
 import { CmsRoutes } from "../modules/cms/cms.route";
 import { CollectionRoutes } from "../modules/collection/collection.route";
 import { CreditRoutes } from "../modules/credit/credit.route";
+import { DashboardRoutes } from "../modules/dashboard/dashboard.route";
 import { GradingRoutes } from "../modules/grading/grading.route";
 import { NotificationRoutes } from "../modules/notification/notification.route";
 import { OtpRoutes } from "../modules/otp/otp.route";
@@ -35,6 +36,7 @@ const moduleRoutes = [
   { path: "/price", route: PriceRoutes },
   { path: "/subscription", route: SubscriptionRoutes },
   { path: "/transaction", route: TransactionRoutes },
+  { path: "/dashboard", route: DashboardRoutes },
   { path: "/notification", route: NotificationRoutes },
   { path: "/support", route: SupportRoutes },
   { path: "/cms", route: CmsRoutes },

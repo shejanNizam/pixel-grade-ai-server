@@ -22,6 +22,9 @@ export interface ICollectionItemInitial {
   change24h?: number;
   change7d?: number;
   change30d?: number;
+  /** Schema-managed (`timestamps.createdAt` is aliased to this). Declared so
+   *  "what did this user hold in month N" can be answered without a cast. */
+  addedAt?: Date;
 }
 
 export type ICollectionItem = ICollectionItemInitial & Document;

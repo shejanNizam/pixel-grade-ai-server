@@ -112,6 +112,35 @@ router.get(
 
 /**
  * @swagger
+ * /collection/value-over-time:
+ *   get:
+ *     tags: [Collection]
+ *     summary: Collection value per calendar month
+ *     description: >
+ *       Backs the dashboard trend chart. Two documented approximations: today's
+ *       quantity is applied to every month (entries keep no quantity history),
+ *       and for months before a card's price history begins its earliest known
+ *       price is carried backwards rather than reading as zero.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: months
+ *         schema:
+ *           type: integer
+ *         description: How many months back, 1-36. Defaults to 12.
+ *     responses:
+ *       200:
+ *         description: One point per month, oldest-first, as YYYY-MM plus value
+ */
+router.get(
+  "/value-over-time",
+  checkAuth(...anyUser),
+  CollectionControllers.getValueOverTime,
+);
+
+/**
+ * @swagger
  * /collection/by-set:
  *   get:
  *     tags: [Collection]

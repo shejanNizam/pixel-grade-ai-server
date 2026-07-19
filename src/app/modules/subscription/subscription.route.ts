@@ -70,6 +70,77 @@ router.post(
  */
 router.post("/cancel", checkAuth(...anyUser), SubscriptionControllers.cancel);
 
+/**
+ * @swagger
+ * /subscription/subscribers:
+ *   get:
+ *     tags: [Subscription]
+ *     summary: List subscribers (admin only)
+ *     description: >
+ *       Backs the admin "Subscribed users" table. Driven from subscriptions
+ *       rather than accounts, since being subscribed is not a field on a user.
+ *       Defaults to active and past-due subscriptions.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: searchTerm
+ *         schema:
+ *           type: string
+ *         description: Matches user name or email
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [active, canceled, past_due, expired]
+ *       - in: query
+ *         name: plan
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Paginated subscribers with user and plan joined
+ *       403:
+ *         description: Forbidden — insufficient role
+ */
+router.get(
+  "/subscribers",
+  checkAuth(UserRole.admin, UserRole.super_admin),
+  SubscriptionControllers.listSubscribers,
+);
+
+/**
+ * @swagger
+ * /subscription/stats:
+ *   get:
+ *     tags: [Subscription]
+ *     summary: Active subscriber count and MRR (admin only)
+ *     description: >
+ *       MRR is the monthly-equivalent of every active subscription. Yearly
+ *       subscribers contribute their effective monthly rate, not their annual
+ *       charge. Past-due subscriptions are excluded from both figures.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: activeSubscriptions, mrr, newThisMonth, newLastMonth
+ *       403:
+ *         description: Forbidden — insufficient role
+ */
+router.get(
+  "/stats",
+  checkAuth(UserRole.admin, UserRole.super_admin),
+  SubscriptionControllers.getSubscriberStats,
+);
+
 export const SubscriptionRoutes = router;
 
 /**

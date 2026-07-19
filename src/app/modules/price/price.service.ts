@@ -24,6 +24,92 @@ const getHistory = async (cardId: string, window: PriceWindow = "30d") => {
 };
 
 /**
+ * Bucket size per window, so a sparkline gets a useful number of points rather
+ * than every raw sample. The refresh job runs hourly, so a raw 30-day pull is
+ * ~720 points per card — for a 120px sparkline that is pure waste, and across a
+ * 20-row table it is a 14k-document response.
+ *
+ * 24h stays raw: bucketing a single day by day would collapse it to one point.
+ */
+const BUCKET_BY_WINDOW: Record<PriceWindow, "raw" | "day" | "month"> = {
+  "24h": "raw",
+  "7d": "day",
+  "30d": "day",
+  "1y": "month",
+};
+
+/** Max cards in one batch history request. The price tracker paginates at 6
+ *  rows, so this leaves generous headroom without allowing an unbounded fan-out. */
+export const MAX_HISTORY_BATCH = 50;
+
+/**
+ * Downsampled history for many cards in one round trip.
+ *
+ * Exists because the price tracker renders a 30-day sparkline per row: without
+ * this the client would issue one `/price/:cardId` request per visible card.
+ *
+ * Each bucket keeps the LAST price in it, matching how the single-card change
+ * calculation anchors — a bucket's closing price, not its mean, is what the
+ * next bucket's change is measured against.
+ */
+const getHistoryBatch = async (
+  cardIds: string[],
+  window: PriceWindow = "30d",
+) => {
+  const ids = cardIds
+    .filter((id) => Types.ObjectId.isValid(id))
+    .slice(0, MAX_HISTORY_BATCH)
+    .map((id) => new Types.ObjectId(id));
+
+  // Empty in, empty out — an empty $in would scan nothing but still round-trip.
+  if (ids.length === 0) return {};
+
+  const days = WINDOW_DAYS[window] ?? WINDOW_DAYS["30d"];
+  const bucket = BUCKET_BY_WINDOW[window] ?? "day";
+
+  const bucketKey =
+    bucket === "raw"
+      ? "$capturedAt"
+      : {
+          $dateTrunc: {
+            date: "$capturedAt",
+            unit: bucket === "month" ? "month" : "day",
+          },
+        };
+
+  const rows = await PriceHistory.aggregate<{
+    _id: { card: Types.ObjectId; bucket: Date };
+    price: number;
+  }>([
+    { $match: { card: { $in: ids }, capturedAt: { $gte: since(days) } } },
+    // $last below takes the newest point in each bucket, which only holds if
+    // the sort runs first.
+    { $sort: { capturedAt: 1 } },
+    {
+      $group: {
+        _id: { card: "$card", bucket: bucketKey },
+        price: { $last: "$price" },
+      },
+    },
+    { $sort: { "_id.bucket": 1 } },
+  ]);
+
+  const byCard: Record<string, { capturedAt: Date; price: number }[]> = {};
+  // Every requested id gets a key, so a card with no history yet reads as an
+  // empty sparkline rather than an undefined the client has to guard.
+  for (const id of ids) byCard[String(id)] = [];
+
+  for (const row of rows) {
+    byCard[String(row._id.card)]?.push({
+      capturedAt: row._id.bucket,
+      price: row.price,
+    });
+  }
+
+  return byCard;
+};
+
+/**
  * Percentage change over a window.
  *
  * Anchored to the earliest point *inside* the window rather than to whatever
@@ -218,6 +304,7 @@ const getCardPrice = async (cardId: string, window: PriceWindow) => {
 
 export const PriceServices = {
   getHistory,
+  getHistoryBatch,
   getCardPrice,
   refreshCard,
   refreshStalest,

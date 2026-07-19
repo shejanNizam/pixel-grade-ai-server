@@ -57,18 +57,14 @@ const envSchema = z.object({
     .enum(["tcgplayer", "pricecharting", "cardmarket", "scrydex"])
     .default("scrydex"),
 
-  // AI grading. Two interchangeable providers; pick with GRADING_PROVIDER.
-  // The client's service agreement names OpenAI, so that is the default.
-  GRADING_PROVIDER: z.enum(["openai", "claude"]).default("openai"),
+  // AI grading — OpenAI only, per the client's service agreement.
   OPENAI_API_KEY: z.string().optional(),
   // Confirm against OpenAI's current model list — they ship new vision models
   // often and this default will go stale.
   OPENAI_GRADING_MODEL: z.string().default("gpt-4o"),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  CLAUDE_GRADING_MODEL: z.string().default("claude-opus-4-8"),
   /** Stamped onto every report AND used in the grading cache key. Bump it when
-   *  the provider, model, or prompt changes, so old reports keep their original
-   *  grade and new scans re-grade instead of mixing two models under one key. */
+   *  the model or prompt changes, so old reports keep their original grade and
+   *  new scans re-grade instead of mixing two models under one key. */
   GRADING_MODEL_VERSION: z.string().default("pixelgrade-v1"),
 
   // Slab background generation — vendor unconfirmed.
@@ -147,11 +143,8 @@ export const configs = {
   },
 
   GRADING: {
-    provider: env.GRADING_PROVIDER,
     openai_api_key: env.OPENAI_API_KEY,
     openai_model: env.OPENAI_GRADING_MODEL,
-    anthropic_api_key: env.ANTHROPIC_API_KEY,
-    claude_model: env.CLAUDE_GRADING_MODEL,
     model_version: env.GRADING_MODEL_VERSION,
   },
 

@@ -3,6 +3,8 @@ import { PipelineStage, Types } from "mongoose";
 import AppError from "../../errorHelpers/AppError";
 import { Card } from "../card/card.model";
 import { GradingReport } from "../grading/grading.model";
+import { monthKey, startOfMonth } from "../../utils/dateWindows";
+import { PriceHistory } from "../price/price.model";
 import { ICollectionItem } from "./collection.interface";
 import { CollectionItem } from "./collection.model";
 
@@ -165,6 +167,123 @@ const getSummary = async (userId: string) => {
   };
 };
 
+/**
+ * Collection value per calendar month, for the dashboard's trend chart.
+ *
+ * Assembled in application code rather than one aggregation because it is a
+ * cross product of two independent series — which entries the user held in a
+ * month, and what those cards were worth that month — and expressing the
+ * carry-forward below in the pipeline would be far harder to keep correct than
+ * it is to read here. Both inputs are user-scale and already downsampled to at
+ * most one point per card per month.
+ *
+ * Two deliberate approximations, because the honest answer is unknowable:
+ *
+ *  - Quantity is taken as today's quantity. Entries record no quantity history,
+ *    so a user who owned one copy in March and three today reads as three in
+ *    March. Fixing this needs a quantity audit trail, not a smarter query.
+ *  - For months before a card's price history begins, the EARLIEST known price
+ *    is carried backwards. The platform is younger than the collections in it,
+ *    so the alternative — zero — would draw a cliff that never happened. It
+ *    assumes a flat price before we started watching, which is wrong but
+ *    wrong by less than a cliff is.
+ */
+const getValueOverTime = async (userId: string, months = 12) => {
+  const windowMonths = Math.min(Math.max(months, 1), 36);
+  const from = startOfMonth(windowMonths - 1);
+
+  const items = await CollectionItem.find({ user: new Types.ObjectId(userId) })
+    .select("card quantity currentPrice addedAt")
+    .lean();
+
+  const buckets = Array.from({ length: windowMonths }, (_, i) =>
+    startOfMonth(windowMonths - 1 - i),
+  );
+
+  if (items.length === 0) {
+    return buckets.map((date) => ({ month: monthKey(date), value: 0 }));
+  }
+
+  const cardIds = [...new Set(items.map((item) => String(item.card)))].map(
+    (id) => new Types.ObjectId(id),
+  );
+
+  // One closing price per card per month.
+  const points = await PriceHistory.aggregate<{
+    _id: { card: Types.ObjectId; bucket: Date };
+    price: number;
+  }>([
+    { $match: { card: { $in: cardIds }, capturedAt: { $gte: from } } },
+    { $sort: { capturedAt: 1 } },
+    {
+      $group: {
+        _id: {
+          card: "$card",
+          bucket: { $dateTrunc: { date: "$capturedAt", unit: "month" } },
+        },
+        price: { $last: "$price" },
+      },
+    },
+  ]);
+
+  const priceByCardMonth = new Map<string, number>();
+  for (const point of points) {
+    priceByCardMonth.set(
+      `${String(point._id.card)}:${monthKey(point._id.bucket)}`,
+      point.price,
+    );
+  }
+
+  // Walk each card forward once, filling gap months from the last known price,
+  // then backfill the months before its history starts (see the note above).
+  const resolved = new Map<string, number>();
+  for (const cardId of cardIds.map(String)) {
+    let carried: number | undefined;
+    let firstKnown: number | undefined;
+    const leadingGap: string[] = [];
+
+    for (const bucket of buckets) {
+      const key = `${cardId}:${monthKey(bucket)}`;
+      const known = priceByCardMonth.get(key);
+
+      if (known !== undefined) {
+        carried = known;
+        firstKnown ??= known;
+      }
+
+      // Still before this card's first quote — remember the month and fill it
+      // once we know what that first quote was.
+      if (carried === undefined) {
+        leadingGap.push(key);
+        continue;
+      }
+      resolved.set(key, carried);
+    }
+
+    if (firstKnown !== undefined) {
+      for (const key of leadingGap) resolved.set(key, firstKnown);
+    }
+  }
+
+  return buckets.map((bucket) => {
+    const key = monthKey(bucket);
+    const bucketEnd = new Date(
+      Date.UTC(bucket.getUTCFullYear(), bucket.getUTCMonth() + 1, 1),
+    );
+
+    const value = items.reduce((sum, item) => {
+      // An entry contributes nothing to a month that ended before it was added.
+      if (item.addedAt && item.addedAt >= bucketEnd) return sum;
+
+      const price =
+        resolved.get(`${String(item.card)}:${key}`) ?? item.currentPrice ?? 0;
+      return sum + price * (item.quantity ?? 1);
+    }, 0);
+
+    return { month: key, value: Number(value.toFixed(2)) };
+  });
+};
+
 /** Collection grouped by set, for the dashboard breakdown. */
 const getBySet = async (userId: string) => {
   return CollectionItem.aggregate([
@@ -279,6 +398,7 @@ const removeItem = async (userId: string, itemId: string) => {
 export const CollectionServices = {
   getMyCollection,
   getSummary,
+  getValueOverTime,
   getBySet,
   addItem,
   getSingleItem,

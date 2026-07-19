@@ -31,6 +31,20 @@ const getSummary = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getValueOverTime = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const result = await CollectionServices.getValueOverTime(
+    userId as string,
+    Number(req.query.months) || 12,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Collection value over time retrieved successfully!",
+    data: result,
+  });
+});
+
 const getBySet = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
   const result = await CollectionServices.getBySet(userId as string);
@@ -99,6 +113,7 @@ const removeItem = catchAsync(async (req: Request, res: Response) => {
 export const CollectionControllers = {
   getMyCollection,
   getSummary,
+  getValueOverTime,
   getBySet,
   addItem,
   getSingleItem,

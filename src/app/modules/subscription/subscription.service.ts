@@ -1,8 +1,10 @@
 import httpStatus from "http-status";
+import { PipelineStage, Types } from "mongoose";
 import Stripe from "stripe";
 import { configs } from "../../config/index";
 import AppError from "../../errorHelpers/AppError";
 import { getStripe } from "../../services/stripe.service";
+import { startOfMonth } from "../../utils/dateWindows";
 import { logger } from "../../utils/logger";
 import { CreditServices } from "../credit/credit.service";
 import { NotifType } from "../notification/notification.interface";
@@ -278,8 +280,190 @@ const getMySubscription = async (userId: string) => {
   return { subscription, plan, credits };
 };
 
+/**
+ * Admin list of subscribers.
+ *
+ * Driven from Subscription rather than User because "subscribed" is a fact
+ * about a subscription, not a column on the account — filtering `User` could
+ * never express it. The user and plan are joined in so the table has a name,
+ * an email, and a tier without a second round trip.
+ *
+ * NOTE: the admin table also has Country and State columns. Neither exists on
+ * the user model, so neither is returned — see docs/OPEN-QUESTIONS.md before
+ * adding them, since collecting location is a data-protection decision rather
+ * than a schema one.
+ */
+const listSubscribers = async (query: Record<string, string>) => {
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(query.limit) || 10, 1), 100);
+  const searchTerm = (query.searchTerm ?? "").trim();
+
+  const match: Record<string, unknown> = {};
+  // Default to active: an admin opening "Subscribed users" means people who are
+  // paying now, not everyone who ever did.
+  match.status = query.status
+    ? query.status
+    : { $in: [SubStatus.active, SubStatus.past_due] };
+  // Cast explicitly: the joined `plan._id` is an ObjectId, and $match does not
+  // coerce a string to one, so an uncast filter silently returns nothing.
+  if (query.plan && Types.ObjectId.isValid(query.plan)) {
+    match["plan._id"] = new Types.ObjectId(query.plan);
+  }
+
+  const pipeline: PipelineStage[] = [
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "user",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    { $unwind: "$user" },
+    { $match: { "user.isDeleted": false } },
+    {
+      $lookup: {
+        from: Plan.collection.name,
+        localField: "plan",
+        foreignField: "_id",
+        as: "plan",
+      },
+    },
+    { $unwind: "$plan" },
+    { $match: match },
+  ];
+
+  if (searchTerm) {
+    const rx = new RegExp(searchTerm, "i");
+    pipeline.push({
+      $match: { $or: [{ "user.name": rx }, { "user.email": rx }] },
+    });
+  }
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+      status: 1,
+      interval: 1,
+      currentPeriodEnd: 1,
+      cancelAtPeriodEnd: 1,
+      subscribedAt: "$createdAt",
+      "user._id": 1,
+      "user.name": 1,
+      "user.email": 1,
+      "user.status": 1,
+      "user.avatar": 1,
+      "user.createdAt": 1,
+      "plan._id": 1,
+      "plan.name": 1,
+      "plan.priceMonthly": 1,
+      "plan.priceYearly": 1,
+    },
+  });
+
+  // $facet keeps the page and its total in one round trip.
+  const [result] = await Subscription.aggregate([
+    ...pipeline,
+    {
+      $facet: {
+        data: [
+          { $sort: { subscribedAt: -1 } },
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  ]);
+
+  const total = result?.total?.[0]?.count ?? 0;
+
+  return {
+    data: result?.data ?? [],
+    meta: { page, limit, total, totalPage: Math.ceil(total / limit) },
+  };
+};
+
+/**
+ * Subscriber counts and monthly recurring revenue.
+ *
+ * MRR takes `priceYearly` verbatim for yearly subscribers because that field is
+ * ALREADY the effective monthly rate — the ×12 happens once, at checkout (see
+ * `amountFor`). Dividing an annual charge by twelve here would double-discount
+ * every yearly customer and quietly understate MRR.
+ *
+ * `past_due` counts toward neither: the subscription has not been cancelled,
+ * but the money did not arrive, and reporting it as recurring revenue would
+ * book income that failed to collect.
+ */
+const getSubscriberStats = async () => {
+  const rows = await Subscription.aggregate<{
+    _id: null;
+    activeSubscriptions: number;
+    mrr: number;
+    newThisMonth: number;
+    newLastMonth: number;
+  }>([
+    { $match: { status: SubStatus.active } },
+    {
+      $lookup: {
+        from: Plan.collection.name,
+        localField: "plan",
+        foreignField: "_id",
+        as: "plan",
+      },
+    },
+    { $unwind: "$plan" },
+    {
+      $group: {
+        _id: null,
+        activeSubscriptions: { $sum: 1 },
+        mrr: {
+          $sum: {
+            $cond: [
+              { $eq: ["$interval", BillingInterval.yearly] },
+              "$plan.priceYearly",
+              "$plan.priceMonthly",
+            ],
+          },
+        },
+        newThisMonth: {
+          $sum: {
+            $cond: [{ $gte: ["$createdAt", startOfMonth(0)] }, 1, 0],
+          },
+        },
+        newLastMonth: {
+          $sum: {
+            $cond: [
+              {
+                $and: [
+                  { $gte: ["$createdAt", startOfMonth(1)] },
+                  { $lt: ["$createdAt", startOfMonth(0)] },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ]);
+
+  const stats = rows[0];
+
+  return {
+    activeSubscriptions: stats?.activeSubscriptions ?? 0,
+    mrr: Number((stats?.mrr ?? 0).toFixed(2)),
+    newThisMonth: stats?.newThisMonth ?? 0,
+    newLastMonth: stats?.newLastMonth ?? 0,
+  };
+};
+
 export const SubscriptionServices = {
   createCheckoutSession,
+  listSubscribers,
+  getSubscriberStats,
   handleWebhookEvent,
   cancelSubscription,
   getMySubscription,

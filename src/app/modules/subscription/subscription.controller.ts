@@ -65,8 +65,33 @@ const getMySubscription = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const listSubscribers = catchAsync(async (req: Request, res: Response) => {
+  const result = await SubscriptionServices.listSubscribers(
+    req.query as unknown as Record<string, string>,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Subscribers retrieved successfully!",
+    data: result.data,
+    meta: result.meta,
+  });
+});
+
+const getSubscriberStats = catchAsync(async (_req: Request, res: Response) => {
+  const result = await SubscriptionServices.getSubscriberStats();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Subscription stats retrieved successfully!",
+    data: result,
+  });
+});
+
 export const SubscriptionControllers = {
   createCheckout,
+  listSubscribers,
+  getSubscriberStats,
   webhook,
   cancel,
   getMySubscription,

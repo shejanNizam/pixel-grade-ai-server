@@ -61,6 +61,46 @@ router.post(
 
 /**
  * @swagger
+ * /price/history:
+ *   get:
+ *     tags: [Price]
+ *     summary: Downsampled price history for many cards at once
+ *     description: >
+ *       Backs the price tracker's per-row sparklines, which would otherwise
+ *       need one request per visible card. Points are bucketed (daily for 7d
+ *       and 30d, monthly for 1y, raw for 24h) and each bucket carries its
+ *       closing price. Cards with no history yet come back as an empty array
+ *       rather than being omitted.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: cardIds
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Comma-separated card ids, capped at 50
+ *       - in: query
+ *         name: window
+ *         schema:
+ *           type: string
+ *           enum: [24h, 7d, 30d, 1y]
+ *     responses:
+ *       200:
+ *         description: Map of card id to points, oldest-first
+ *       403:
+ *         description: Price tracking requires the Collector plan or above
+ */
+// Must stay above `/:cardId` — otherwise the param route claims "history".
+router.get(
+  "/history",
+  checkAuth(...anyUser),
+  requirePriceTracking,
+  PriceControllers.getHistoryBatch,
+);
+
+/**
+ * @swagger
  * /price/{cardId}:
  *   get:
  *     tags: [Price]

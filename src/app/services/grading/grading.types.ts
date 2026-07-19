@@ -49,11 +49,10 @@ export interface IGradingProvider {
 }
 
 /**
- * The JSON schema both providers constrain output to.
+ * The JSON schema the grading provider constrains output to.
  *
  * `additionalProperties: false` plus a fully-populated `required` array is what
- * OpenAI's strict mode demands; Claude accepts the same shape, so one schema
- * serves both and the parsed result is identical either way.
+ * OpenAI's strict mode demands.
  */
 export const gradingSchema = {
   type: "object",
