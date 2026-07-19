@@ -179,9 +179,16 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
 };
 
 /**
- * Scheduled sweep. Oldest-priced cards first, so a run that cannot finish the
- * whole catalogue still makes progress on the stalest data rather than
- * re-pricing the same head of the list every hour.
+ * Scheduled sweep. HELD cards first (anything referenced by a collection
+ * entry), then the rest of the catalogue with whatever budget remains; within
+ * each group, oldest-priced first so an unfinished run still makes progress on
+ * the stalest data.
+ *
+ * Held-first is a Scrydex budget decision, not a performance one: on the
+ * Starter tier (5,000 credits/month, decided 2026-07-19) every quote costs a
+ * credit from the same pool that pays for scans, so the cards users actually
+ * see on their dashboards must be refreshed before catalogue strays that
+ * nobody holds.
  *
  * Failures are per-card and swallowed: one dead card must not abort the sweep.
  */
@@ -191,10 +198,23 @@ const refreshStalest = async (limit = 200) => {
     return { refreshed: 0, failed: 0, skipped: true };
   }
 
-  const cards = await Card.find()
+  const heldIds = await CollectionItem.distinct("card");
+
+  const held = await Card.find({ _id: { $in: heldIds } })
     .sort({ lastPricedAt: 1 })
     .limit(limit)
     .select("_id");
+
+  const remaining = limit - held.length;
+  const rest =
+    remaining > 0
+      ? await Card.find({ _id: { $nin: heldIds } })
+          .sort({ lastPricedAt: 1 })
+          .limit(remaining)
+          .select("_id")
+      : [];
+
+  const cards = [...held, ...rest];
 
   let refreshed = 0;
   let failed = 0;

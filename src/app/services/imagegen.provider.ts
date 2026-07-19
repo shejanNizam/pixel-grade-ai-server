@@ -1,16 +1,29 @@
 import httpStatus from "http-status";
+import OpenAI from "openai";
+import { uploadBufferToCloudinary } from "../config/cloudinary.config";
 import { configs } from "../config/index";
 import { SlabStyle } from "../constants";
 import AppError from "../errorHelpers/AppError";
 
 /**
- * Slab background generation.
+ * Slab background generation — OpenAI gpt-image-1.
+ *
+ * Vendor confirmed by the client 2026-07-19 (same account as grading, so
+ * `OPENAI_API_KEY` covers this too; `IMAGEGEN_API_KEY` remains as an override
+ * hook if backgrounds ever move to a separate account or vendor).
  *
  * Only the background artwork is generated. The card window and the label text
  * are composited server-side afterwards (see slab.service.ts) so a bad
  * generation can never move the card opening or corrupt the label.
  *
- * Vendor unconfirmed — docs/OPEN-QUESTIONS.md #2.
+ * SIZE: gpt-image-1's largest portrait output is 1024×1536, while the export
+ * canvas is 1181×1701. The composite step (`slab.composite.ts`) resizes the
+ * background to the canvas with `fit: "cover"` — a ~15% upscale, invisible on
+ * abstract art — so the requested pixel size here is advisory, not binding.
+ *
+ * COST: each call is a billed image (roughly $0.02–$0.25 depending on
+ * quality). Regeneration hits this every time; the per-label regenerate flow
+ * is where any spend cap belongs.
  */
 
 /** One prompt per confirmed style. Kept here so a style change is one edit. */
@@ -25,27 +38,95 @@ export const STYLE_PROMPTS: Record<SlabStyle, string> = {
     "Aged parchment texture, warm sepia, subtle paper grain and foxing, muted gold accents, no text, no characters, no borders",
 };
 
-const isConfigured = (): boolean =>
-  Boolean(configs.IMAGEGEN.api_key && configs.IMAGEGEN.base_url);
+/** Prefixed onto every style prompt. The model occasionally invents lettering
+ *  or figures; stating the constraints once, up front, is the strongest lever
+ *  we have against artwork that would clash with the composited label. */
+const PROMPT_PREAMBLE =
+  "Abstract full-bleed background artwork for a collectible card display case. " +
+  "Purely decorative: absolutely no text, no letters, no numbers, no logos, " +
+  "no people, no creatures, no recognisable objects. Edge-to-edge, portrait. ";
 
-/** Returns a URL to the generated background at the requested pixel size. */
+const MODEL = "gpt-image-1";
+
+/** Largest portrait size gpt-image-1 offers; see the SIZE note above. */
+const OUTPUT_SIZE = "1024x1536" as const;
+
+/** "medium" is visually ample for a backdrop that sits behind a card and a
+ *  label; "high" roughly quadruples the cost for detail nobody will see. */
+const QUALITY = "medium" as const;
+
+let client: OpenAI | null = null;
+
+/** IMAGEGEN_API_KEY overrides; otherwise the shared OpenAI account is used. */
+const apiKey = (): string | undefined =>
+  configs.IMAGEGEN.api_key || configs.GRADING.openai_api_key;
+
+const isConfigured = (): boolean => Boolean(apiKey());
+
+const getClient = (): OpenAI => {
+  if (!isConfigured()) {
+    throw new AppError(
+      httpStatus.SERVICE_UNAVAILABLE,
+      "Slab background generation is not configured — OPENAI_API_KEY (or IMAGEGEN_API_KEY) is missing.",
+    );
+  }
+  client ??= new OpenAI({
+    apiKey: apiKey(),
+    ...(configs.IMAGEGEN.base_url ? { baseURL: configs.IMAGEGEN.base_url } : {}),
+  });
+  return client;
+};
+
+/**
+ * Generates one background and returns a permanent URL.
+ *
+ * gpt-image-1 returns base64 rather than a hosted URL, and OpenAI's hosted
+ * image URLs expire anyway — so the image is pushed straight to Cloudinary,
+ * which is already the platform's permanent image store. The slab pipeline
+ * then fetches it back by URL exactly as it would from any other vendor.
+ */
 const generateBackground = async (
   style: SlabStyle,
   widthPx: number,
   heightPx: number,
 ): Promise<string> => {
-  if (!isConfigured()) {
+  const prompt = STYLE_PROMPTS[style];
+  if (!prompt) {
+    throw new AppError(httpStatus.BAD_REQUEST, `Unknown slab style: ${style}`);
+  }
+
+  // Advisory only — see the SIZE note above.
+  void widthPx;
+  void heightPx;
+
+  const response = await getClient().images.generate({
+    model: MODEL,
+    prompt: PROMPT_PREAMBLE + prompt,
+    size: OUTPUT_SIZE,
+    quality: QUALITY,
+    n: 1,
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) {
     throw new AppError(
-      httpStatus.SERVICE_UNAVAILABLE,
-      "Slab background generation is not configured — IMAGEGEN_API_KEY and IMAGEGEN_BASE_URL are missing. See docs/OPEN-QUESTIONS.md.",
+      httpStatus.BAD_GATEWAY,
+      "Image generation returned no image data.",
     );
   }
 
-  // TODO(client-credentials): implement against the confirmed image service.
-  throw new AppError(
-    httpStatus.NOT_IMPLEMENTED,
-    `Background generation is not implemented yet (style=${style}, ${widthPx}x${heightPx}).`,
+  const upload = await uploadBufferToCloudinary(
+    Buffer.from(b64, "base64"),
+    `slab-bg-${style}`,
   );
+  if (!upload?.secure_url) {
+    throw new AppError(
+      httpStatus.BAD_GATEWAY,
+      "Generated background could not be stored.",
+    );
+  }
+
+  return upload.secure_url;
 };
 
 export const ImageGenProvider = {

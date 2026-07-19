@@ -19,11 +19,25 @@ import { logger } from "../utils/logger";
  * but the ledger would still show duplicate grant rows.
  */
 
-/** Hourly price refresh, oldest-priced cards first. */
+/**
+ * Daily price refresh at 00:30, held/tracked cards first.
+ *
+ * Daily cadence and the batch size are Scrydex Starter-tier budget decisions
+ * (client, 2026-07-19). Quotes cost 1 Scrydex credit each, drawn from the same
+ * 5,000/month pool that funds identification at 5 credits per scan:
+ * 100 cards/day × 30 = 3,000 credits, leaving ~2,000 ≈ 400 scans/month.
+ * This constant is the entire throttle — raising it directly eats scan
+ * capacity, so shrink it or upgrade the Scrydex tier before touching it.
+ *
+ * The requirements' "hourly recommended" cadence needs the Growth tier; to
+ * restore it later, change the cron expression back to "0 * * * *".
+ */
+const DAILY_PRICE_BATCH = 100;
+
 const startPriceRefresh = () =>
-  cron.schedule("0 * * * *", async () => {
+  cron.schedule("30 0 * * *", async () => {
     try {
-      const result = await PriceServices.refreshStalest(500);
+      const result = await PriceServices.refreshStalest(DAILY_PRICE_BATCH);
       if (!result.skipped) {
         logger.info("Price refresh complete", result);
         await ActivityLogServices.record(ActivityAction.price_refresh, {
@@ -127,5 +141,7 @@ export const startJobs = () => {
   startPriceRefresh();
   startDailyCreditGrant();
   startMonthlyCreditGrant();
-  logger.info("Scheduled jobs started (price refresh, daily/monthly credits)");
+  logger.info(
+    "Scheduled jobs started (daily price refresh, daily/monthly credits)",
+  );
 };

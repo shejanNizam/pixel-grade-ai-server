@@ -1,8 +1,16 @@
 import crypto from "crypto";
 import httpStatus from "http-status";
-import { PIXELSCOPE_MAX_IMAGES_PER_SIDE, STANDARD_MAX_IMAGES } from "../../constants";
+import {
+  PIXELSCOPE_MAX_IMAGES_PER_SIDE,
+  REDIS_KEYS,
+  STANDARD_MAX_IMAGES,
+} from "../../constants";
+import { redisClient } from "../../config/redis.config";
 import AppError from "../../errorHelpers/AppError";
-import { IdentificationProvider } from "../../services/identification.provider";
+import {
+  IdentificationProvider,
+  IdentificationResult,
+} from "../../services/identification.provider";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { logger } from "../../utils/logger";
 import { CardGame } from "../card/card.interface";
@@ -33,6 +41,55 @@ const computeImageSetHash = (images: UploadedImage[]): string => {
     .sort()
     .join("|");
   return crypto.createHash("sha256").update(canonical).digest("hex");
+};
+
+/**
+ * Identification cache — saves Scrydex credits (5 per Vision call), not time.
+ *
+ * Keyed by the exact input the vendor sees: the FIRST image's URL plus the
+ * game (identification deliberately sends one image — see the provider's cost
+ * note). This dedupes retries and resubmissions of the same upload. It does
+ * NOT dedupe a fresh upload of the same photo — Cloudinary mints a new URL per
+ * upload, so the key differs; content-hash keying would require downloading
+ * every image, which costs more than it saves at current volume.
+ *
+ * 30-day TTL: long enough that retry storms and re-scans stay free, short
+ * enough that catalogue corrections at Scrydex eventually propagate.
+ *
+ * Fail-open like the grading cache: a Redis outage must never block a scan —
+ * it just costs vendor credits for the duration.
+ */
+const IDENT_CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+const identCacheKey = (imageUrl: string, game: CardGame): string =>
+  `${REDIS_KEYS.identification}${game}:${crypto
+    .createHash("sha256")
+    .update(imageUrl)
+    .digest("hex")}`;
+
+const readIdentCache = async (
+  key: string,
+): Promise<IdentificationResult | null> => {
+  try {
+    const hit = await redisClient.get(key);
+    return hit ? (JSON.parse(hit) as IdentificationResult) : null;
+  } catch (error) {
+    logger.error("Identification cache read failed", { key, error });
+    return null;
+  }
+};
+
+const writeIdentCache = async (
+  key: string,
+  result: IdentificationResult,
+): Promise<void> => {
+  try {
+    await redisClient.set(key, JSON.stringify(result), {
+      EX: IDENT_CACHE_TTL_SECONDS,
+    });
+  } catch (error) {
+    logger.error("Identification cache write failed", { key, error });
+  }
 };
 
 /** Enforces the per-mode image limits from the requirements. */
@@ -105,10 +162,27 @@ const createAnalysis = async (
   await CreditServices.spendForScan(userId, analysis._id);
 
   try {
-    const result = await IdentificationProvider.identify(
-      payload.images.map((i) => i.imageUrl),
+    // Identification sends only the first image, so that is what keys the
+    // cache. A hit costs zero Scrydex credits; the user's own scan debit above
+    // stands either way — they are paying for the scan, not the vendor call.
+    // validateImageSet guarantees at least one image, so this never falls back.
+    const cacheKey = identCacheKey(
+      payload.images[0]?.imageUrl ?? "",
       payload.game,
     );
+
+    let result = await readIdentCache(cacheKey);
+    if (!result) {
+      result = await IdentificationProvider.identify(
+        payload.images.map((i) => i.imageUrl),
+        payload.game,
+      );
+      // Empty results are not cached: a transient vendor hiccup should not
+      // pin "no match" onto this image for a month.
+      if (result.candidates.length > 0) {
+        await writeIdentCache(cacheKey, result);
+      }
+    }
 
     if (result.candidates.length === 0) {
       analysis.status = AnalysisStatus.failed;
