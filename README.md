@@ -198,7 +198,7 @@ ADMIN_PASSWORD=admin_password
 # Session
 EXPRESS_SESSION_SECRET=your_session_secret
 
-# CORS
+# CORS — comma-separated list of allowed origins; first entry is used for email/redirect links
 FRONTEND_URL=http://localhost:3000
 
 # Google OAuth (optional)

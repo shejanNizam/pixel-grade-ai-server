@@ -87,6 +87,13 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+// FRONTEND_URL accepts a comma-separated list of origins (e.g. local dev +
+// tunnel). The full list feeds CORS; the FIRST entry is the canonical URL used
+// wherever a single link target is needed (emails, OAuth redirects, Stripe).
+const frontendUrls = env.FRONTEND_URL.split(",")
+  .map((url) => url.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
+
 export const configs = {
   port: env.PORT,
   database_url: env.DATABASE_URL,
@@ -112,7 +119,8 @@ export const configs = {
 
   express_session_secret: env.EXPRESS_SESSION_SECRET,
 
-  frontend_url: env.FRONTEND_URL,
+  frontend_url: frontendUrls[0] ?? "*",
+  frontend_urls: frontendUrls,
 
   CLOUDINARY: {
     cloudinary_cloud_name: env.CLOUDINARY_CLOUD_NAME,

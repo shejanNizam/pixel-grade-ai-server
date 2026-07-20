@@ -75,8 +75,8 @@ app.use(xss());
 app.use(cookieParser());
 app.use(
   cors({
-    origin: configs.frontend_url === "*" ? true : configs.frontend_url,
-    credentials: configs.frontend_url !== "*",
+    origin: configs.frontend_urls.includes("*") ? true : configs.frontend_urls,
+    credentials: !configs.frontend_urls.includes("*"),
   }),
 );
 app.use(

@@ -32,6 +32,14 @@ export const updateUserZodSchema = z.object({
     .string({ error: "Phone must be string" })
     .regex(/^\+[1-9]\d{6,14}$/, "Phone must be in E.164 format e.g. +8801712345678")
     .optional(),
+  // The two-step avatar flow: the file goes to POST /upload first, then the
+  // resulting Cloudinary object is PATCHed here.
+  avatar: z
+    .object({
+      url: z.string().url({ message: "avatar.url must be a valid URL" }),
+      publicId: z.string().min(1),
+    })
+    .optional(),
   role: z.enum(Object.values(UserRole) as [string, ...string[]]).optional(),
   status: z.enum(["active", "blocked"]).optional(),
   blockReason: z.string().optional(),

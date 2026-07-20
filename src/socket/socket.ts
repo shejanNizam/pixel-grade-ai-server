@@ -16,8 +16,8 @@ let io: Server;
 export const initSocket = async (httpServer: HTTPServer): Promise<Server> => {
   io = new Server(httpServer, {
     cors: {
-      origin: configs.frontend_url === "*" ? true : configs.frontend_url,
-      credentials: configs.frontend_url !== "*",
+      origin: configs.frontend_urls.includes("*") ? true : configs.frontend_urls,
+      credentials: !configs.frontend_urls.includes("*"),
     },
   });
 
