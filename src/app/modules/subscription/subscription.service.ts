@@ -101,7 +101,9 @@ const activateFromWebhook = async (
   userId: string,
   planId: string,
   interval: BillingInterval,
-  stripeSubscriptionId: string,
+  /** Absent for a manual (no-Stripe) grant — see scripts/grant-plan.ts. A
+   *  subscription without this id cannot be cancelled through Stripe. */
+  stripeSubscriptionId?: string,
   currentPeriodEnd?: Date,
 ) => {
   const plan = await Plan.findById(planId);
@@ -117,7 +119,9 @@ const activateFromWebhook = async (
       plan: planId,
       interval,
       status: SubStatus.active,
-      stripeSubscriptionId,
+      // Only overwrite the Stripe id when one is supplied, so a manual re-grant
+      // never wipes a real subscription reference.
+      ...(stripeSubscriptionId ? { stripeSubscriptionId } : {}),
       currentPeriodEnd,
       cancelAtPeriodEnd: false,
     },
@@ -132,7 +136,7 @@ const activateFromWebhook = async (
     amount: amountFor(plan, interval),
     currency: "USD",
     status: TxnStatus.succeeded,
-    stripeRef: stripeSubscriptionId,
+    stripeRef: stripeSubscriptionId ?? "manual-grant",
   });
 
   // Grant the new allowance immediately. On a yearly plan this grants ONE
@@ -465,6 +469,7 @@ export const SubscriptionServices = {
   listSubscribers,
   getSubscriberStats,
   handleWebhookEvent,
+  activateFromWebhook,
   cancelSubscription,
   getMySubscription,
   amountFor,
