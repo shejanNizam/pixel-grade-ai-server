@@ -3,6 +3,8 @@ import httpStatus from "http-status";
 import { JwtPayload } from "jsonwebtoken";
 import { configs } from "../../config/index";
 import AppError from "../../errorHelpers/AppError";
+import { SubStatus } from "../subscription/subscription.interface";
+import { Subscription } from "../subscription/subscription.model";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { IUser, UserRole } from "./user.interface";
 import { User } from "./user.model";
@@ -77,7 +79,30 @@ const getAllUsers = async (query: Record<string, string>) => {
     .build();
 
   const meta = await queryBuilder.getMeta();
-  return { data: users, meta };
+
+  // Attach each user's current plan. "Subscribed" is a fact about a
+  // subscription, not a column on the account, so join it in for just the page
+  // of users being returned — no active subscription means the implicit Free
+  // plan. One extra query for the whole page, not one per row.
+  const ids = users.map((u) => u._id);
+  const subs = await Subscription.find({
+    user: { $in: ids },
+    status: SubStatus.active,
+  }).populate("plan", "name");
+
+  const planByUser = new Map(
+    subs.map((s) => [
+      String(s.user),
+      (s.plan as unknown as { name?: string })?.name ?? null,
+    ]),
+  );
+
+  const data = users.map((u) => ({
+    ...u.toObject(),
+    currentPlan: planByUser.get(String(u._id)) ?? "Free",
+  }));
+
+  return { data, meta };
 };
 
 const getSingleUser = async (id: string) => {
