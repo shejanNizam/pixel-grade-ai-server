@@ -25,6 +25,11 @@ const envSchema = z.object({
   EXPRESS_SESSION_SECRET: z.string().min(1, "EXPRESS_SESSION_SECRET is required"),
 
   FRONTEND_URL: z.string().default("*"),
+  /** The single canonical frontend URL for redirects, emails, OAuth returns,
+   *  and Stripe success/cancel pages. Independent of the CORS list so dev can
+   *  keep localhost first in FRONTEND_URL while links still point at the live
+   *  site. Falls back to the first FRONTEND_URL entry when unset. */
+  FRONTEND_PUBLIC_URL: z.string().optional(),
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -87,12 +92,17 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
-// FRONTEND_URL accepts a comma-separated list of origins (e.g. local dev +
-// tunnel). The full list feeds CORS; the FIRST entry is the canonical URL used
-// wherever a single link target is needed (emails, OAuth redirects, Stripe).
+// FRONTEND_URL is a comma-separated list of allowed CORS origins. The single
+// canonical URL for redirects/emails/OAuth/Stripe is FRONTEND_PUBLIC_URL when
+// set, otherwise the first FRONTEND_URL entry — so dev can keep localhost first
+// for CORS while user-facing links still resolve to the live site.
 const frontendUrls = env.FRONTEND_URL.split(",")
   .map((url) => url.trim().replace(/\/+$/, ""))
   .filter(Boolean);
+const frontendPublicUrl =
+  env.FRONTEND_PUBLIC_URL?.trim().replace(/\/+$/, "") ||
+  frontendUrls[0] ||
+  "*";
 
 export const configs = {
   port: env.PORT,
@@ -119,7 +129,7 @@ export const configs = {
 
   express_session_secret: env.EXPRESS_SESSION_SECRET,
 
-  frontend_url: frontendUrls[0] ?? "*",
+  frontend_url: frontendPublicUrl,
   frontend_urls: frontendUrls,
 
   CLOUDINARY: {
