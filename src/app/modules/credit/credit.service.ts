@@ -40,6 +40,58 @@ const recordEntry = async (
   return entry;
 };
 
+/** Mongo's duplicate-key error. The scan/refund uniqueness index turns a
+ *  repeated movement into this rather than a second wallet mutation. */
+const isDuplicateKey = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: number }).code === 11000;
+
+/**
+ * Claim the right to move credits for one analysis, then move them.
+ *
+ * The ledger row is written BEFORE the wallet changes, which is the opposite of
+ * the obvious order and the whole point: `{analysis, reason}` is unique, so the
+ * insert is what arbitrates between two callers racing to refund the same scan
+ * (a user closing the dialog just as the sweeper reaches it). Whoever loses the
+ * insert never touches the wallet, so a scan cannot be refunded twice.
+ *
+ * `balanceAfter` is filled in immediately after the wallet update. It is briefly
+ * wrong on the freshly-written row; that is strictly better than the
+ * alternative, where a lost race has already minted credits.
+ *
+ * Returns null when the movement was already recorded — the caller treats that
+ * as success, because the credits are where they should be either way.
+ */
+const claimAnalysisMovement = async (
+  userId: string | Types.ObjectId,
+  amount: number,
+  reason: CreditReason,
+  analysisId: string | Types.ObjectId,
+  session?: ClientSession,
+  meta?: Record<string, unknown>,
+): Promise<ICreditLedger | null> => {
+  try {
+    const [entry] = await CreditLedger.create(
+      [
+        {
+          user: userId,
+          amount,
+          reason,
+          balanceAfter: 0,
+          analysis: analysisId,
+          ...(meta ? { meta } : {}),
+        },
+      ],
+      session ? { session } : {},
+    );
+    return entry ?? null;
+  } catch (error) {
+    if (isDuplicateKey(error)) return null;
+    throw error;
+  }
+};
+
 /** Resolve the user's active plan, falling back to Free when they have no
  *  subscription at all — an unsubscribed account is a Free account. */
 const resolvePlan = async (userId: string) => {
@@ -104,6 +156,9 @@ const getBalance = async (userId: string) => {
  * concurrent scans on a wallet holding 10 credits must not both succeed, and
  * `balance: { $gte: cost }` inside the update makes the check and the decrement
  * one atomic operation.
+ *
+ * The ledger row is claimed first (see `claimAnalysisMovement`), so one scan can
+ * only ever be charged once however many times this is reached for it.
  */
 const spendForScan = async (
   userId: string,
@@ -112,17 +167,28 @@ const spendForScan = async (
 ) => {
   const wallet = await getOrCreateWallet(userId);
 
+  // Unlimited plans still get a ledger row so admin analytics can report
+  // consumption per tier, but the balance is untouched. `charged: false` marks
+  // it so a later refund knows there is nothing to give back — the user may
+  // have downgraded off Enterprise in between.
+  const entry = await claimAnalysisMovement(
+    userId,
+    -CREDITS_PER_SCAN,
+    CreditReason.scan,
+    analysisId,
+    session,
+    wallet.isUnlimited ? { charged: false } : undefined,
+  );
+  if (!entry) {
+    return {
+      charged: false,
+      balance: wallet.isUnlimited ? null : wallet.balance,
+    };
+  }
+
   if (wallet.isUnlimited) {
-    // Unlimited plans still get a ledger row so admin analytics can report
-    // consumption per tier, but the balance is untouched.
-    await recordEntry(
-      userId,
-      -CREDITS_PER_SCAN,
-      CreditReason.scan,
-      wallet.balance,
-      analysisId,
-      session,
-    );
+    entry.balanceAfter = wallet.balance;
+    await entry.save();
     return { charged: false, balance: null };
   }
 
@@ -133,27 +199,31 @@ const spendForScan = async (
   );
 
   if (!updated) {
+    // The claim did not become a debit, so it must not stay in the ledger —
+    // otherwise the refund path would later "return" credits never taken.
+    await CreditLedger.deleteOne({ _id: entry._id });
     throw new AppError(
       httpStatus.PAYMENT_REQUIRED,
       `Not enough credits. A scan costs ${CREDITS_PER_SCAN} credits and your balance is ${wallet.balance}.`,
     );
   }
 
-  await recordEntry(
-    userId,
-    -CREDITS_PER_SCAN,
-    CreditReason.scan,
-    updated.balance,
-    analysisId,
-    session,
-  );
+  entry.balanceAfter = updated.balance;
+  await entry.save();
 
   return { charged: true, balance: updated.balance };
 };
 
 /**
- * Return credits after a failed scan. Refunds are additive rather than a
- * balance reset, so a refund racing with a fresh grant cannot erase the grant.
+ * Return the credits a scan took, when that scan never produced a report —
+ * it failed, or the user abandoned it at the confirmation step.
+ *
+ * Idempotent by construction (see `claimAnalysisMovement`), because three
+ * different paths can reach it for the same scan: the identification error
+ * handler, an explicit cancel, and the abandoned-scan sweeper.
+ *
+ * Refunds are additive rather than a balance reset, so a refund racing with a
+ * fresh daily grant cannot erase the grant.
  */
 const refundScan = async (
   userId: string,
@@ -162,20 +232,36 @@ const refundScan = async (
   const wallet = await getOrCreateWallet(userId);
   if (wallet.isUnlimited) return { refunded: false, balance: null };
 
+  // Nothing was ever taken for this scan (no debit was recorded, or the wallet
+  // was unlimited at the time) — so there is nothing to give back.
+  const debit = await CreditLedger.findOne({
+    analysis: analysisId,
+    reason: CreditReason.scan,
+  });
+  if (!debit || debit.meta?.charged === false) {
+    return { refunded: false, balance: wallet.balance };
+  }
+
+  const entry = await claimAnalysisMovement(
+    userId,
+    CREDITS_PER_SCAN,
+    CreditReason.refund,
+    analysisId,
+  );
+  if (!entry) return { refunded: false, balance: wallet.balance };
+
   const updated = await CreditWallet.findOneAndUpdate(
     { user: userId, isUnlimited: false },
     { $inc: { balance: CREDITS_PER_SCAN } },
     { returnDocument: "after" },
   );
-  if (!updated) throw new AppError(httpStatus.NOT_FOUND, "Wallet not found");
+  if (!updated) {
+    await CreditLedger.deleteOne({ _id: entry._id });
+    throw new AppError(httpStatus.NOT_FOUND, "Wallet not found");
+  }
 
-  await recordEntry(
-    userId,
-    CREDITS_PER_SCAN,
-    CreditReason.refund,
-    updated.balance,
-    analysisId,
-  );
+  entry.balanceAfter = updated.balance;
+  await entry.save();
 
   return { refunded: true, balance: updated.balance };
 };

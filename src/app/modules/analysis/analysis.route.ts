@@ -22,10 +22,15 @@ const anyUser = Object.values(UserRole);
  *     tags: [Analysis]
  *     summary: Start a scan — upload images and identify the card
  *     description: >
- *       Costs 10 credits. The guard order is deliberate: authenticate, validate
- *       the body, check the PixelScope entitlement, then check the credit
- *       balance. The actual debit happens inside the service after the images
- *       are stored, and is refunded if identification fails.
+ *       Costs 10 credits per finished report. The guard order is deliberate:
+ *       authenticate, validate the body, check the PixelScope entitlement, then
+ *       check the credit balance. The actual debit happens inside the service
+ *       after the images are stored, and is refunded if identification fails,
+ *       if the scan is canceled, or if it is left unconfirmed past the
+ *       abandoned-scan timeout.
+ *       Send a unique `clientRequestId` to make the call idempotent — a retry
+ *       carrying the same key returns the original scan instead of charging
+ *       again.
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -109,6 +114,41 @@ router.patch(
   checkAuth(...anyUser),
   validateRequest(confirmCardZodSchema),
   AnalysisControllers.confirmCard,
+);
+
+/**
+ * @swagger
+ * /analysis/{id}/cancel:
+ *   patch:
+ *     tags: [Analysis]
+ *     summary: Abandon a scan and get the credits back
+ *     description: >
+ *       Ends a scan that never became a report — typically the user closing the
+ *       confirmation dialog without picking a card — and refunds its 10 credits.
+ *       Idempotent: cancelling an already-ended scan succeeds without refunding
+ *       twice. A graded scan cannot be canceled. Scans left unconfirmed are
+ *       swept and refunded automatically after the timeout, so this endpoint is
+ *       the fast path, not the only one.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Canceled; credits returned
+ *       400:
+ *         description: Already graded
+ *       404:
+ *         description: Not found, or not owned by the caller
+ */
+router.patch(
+  "/:id/cancel",
+  checkAuth(...anyUser),
+  AnalysisControllers.cancelAnalysis,
 );
 
 export const AnalysisRoutes = router;

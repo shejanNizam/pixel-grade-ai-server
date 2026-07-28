@@ -14,13 +14,19 @@ export enum ImageSide {
 }
 
 /** `awaiting_confirmation` is a hard gate, not a UI nicety: grading and slab
- *  generation refuse to run until the user has confirmed the match. */
+ *  generation refuse to run until the user has confirmed the match.
+ *
+ *  `canceled` is deliberately distinct from `failed`: both end the scan and both
+ *  refund, but `failed` means the system could not deliver and `canceled` means
+ *  the user walked away. Collapsing them would make abandonment look like an
+ *  outage in the admin analytics. */
 export enum AnalysisStatus {
   identifying = "identifying",
   awaiting_confirmation = "awaiting_confirmation",
   confirmed = "confirmed",
   graded = "graded",
   failed = "failed",
+  canceled = "canceled",
 }
 
 export interface ICardAnalysisInitial {
@@ -33,6 +39,14 @@ export interface ICardAnalysisInitial {
    *  what makes "same image always produces the same grade" true. */
   imageSetHash: string;
   status: AnalysisStatus;
+  /**
+   * Caller-supplied idempotency key, unique per user. A scan is the only
+   * endpoint that spends credits, so a retried or double-fired POST must not
+   * produce a second debit — the unique index turns the duplicate into a
+   * lookup instead of a charge. Optional: older clients simply forgo the
+   * protection rather than being rejected.
+   */
+  clientRequestId?: string;
   /** What the identification service suggested. */
   bestMatchCard?: Types.ObjectId;
   /** What the user actually confirmed. Required before grading may start. */

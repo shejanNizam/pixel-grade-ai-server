@@ -21,6 +21,18 @@ export const CREDITS_PER_SCAN = 10;
 /** Daily allowance for Free, re-granted by cron rather than accrued. No rollover. */
 export const FREE_DAILY_CREDITS = 20;
 
+/**
+ * How long a scan may sit unconfirmed before the sweeper refunds it.
+ *
+ * The debit happens up-front (it is what pays for the vendor's identification
+ * call), but the client's rule is that 10 credits buys a *finished report*. A
+ * scan the user walked away from at the confirmation screen produced nothing,
+ * so the credits go back. 30 minutes is well past any realistic "read the
+ * candidates and pick one" pause, and short enough that a Free user gets their
+ * daily allowance back the same day.
+ */
+export const ABANDONED_SCAN_TIMEOUT_MINUTES = 30;
+
 // ---------------------------------------------------------------------------
 // Grading
 // ---------------------------------------------------------------------------

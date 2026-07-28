@@ -153,6 +153,8 @@ Four calls, in this order. Steps 2 and 3 cannot be skipped or reordered.
 2.  POST /analysis          → debits 10 credits, identifies the card
 3.  PATCH /analysis/:id/confirm  → user picks the real card  ← HARD GATE
 4.  POST /grading/:analysisId    → grades it
+
+    PATCH /analysis/:id/cancel   → bail out at step 3, credits refunded
 ```
 
 **Grading refuses to run until step 3 has set `confirmedCard`.** This is a
@@ -162,18 +164,36 @@ server-side gate, not a UI step — there is no flag that bypasses it.
 
 | Method | Path | Auth | Body / notes |
 |---|---|---|---|
-| POST | `/analysis` | Any + credits | `{ images: [{ imageUrl, side?, slotIndex? }], source?, game?, language? }`. Standard: max **1 per side** (front + back). PixelScope: up to 10 per side |
+| POST | `/analysis` | Any + credits | `{ images: [{ imageUrl, side?, slotIndex? }], source?, game?, language?, clientRequestId? }`. Standard: max **1 per side** (front + back). PixelScope: up to 10 per side |
 | GET | `/analysis` | Any | The caller's analyses, paginated |
 | GET | `/analysis/:id` | Any | Includes candidate matches for the confirmation step |
 | PATCH | `/analysis/:id/confirm` | Any | `{ cardId }` |
+| PATCH | `/analysis/:id/cancel` | Any | Abandon an unconfirmed scan and refund its credits. Idempotent; **400** on an already-graded scan |
 
 `POST /analysis` passes through two guards before the handler: `requirePixelScope`
 (when `source: "pixelscope"`) and `requireCredits`.
 
-- **Credits**: 10 per scan. The balance check and the debit are both server-side.
-  A shortfall is a **402 Payment Required** naming the balance. The debit happens
-  after the images are persisted but before the vendor call, and a vendor failure
-  refunds rather than silently keeping the credits.
+- **Credits**: 10 buys a finished grading report. The balance check and the debit
+  are both server-side, and a shortfall is a **402 Payment Required** naming the
+  balance. The debit happens after the images are persisted but before the vendor
+  call — it is what pays for identification — so anything that ends the scan
+  without a report gives the credits back:
+
+  | Ends as | Refunded by |
+  |---|---|
+  | Identification failed | `POST /analysis` error handler |
+  | User cancelled at the confirmation step | `PATCH /analysis/:id/cancel` |
+  | Left unconfirmed past `ABANDONED_SCAN_TIMEOUT_MINUTES` (30) | Sweeper cron, every 10 min |
+  | Grading failed | `POST /grading/:analysisId` error handler |
+
+  Refunds are claim-based and enforced by a unique `{analysis, reason}` index on
+  the ledger, so a cancel racing the sweeper still refunds exactly once. A
+  `canceled` analysis can never be graded afterwards — its credits are already
+  back, so grading it would be free.
+- **`clientRequestId`** is an optional idempotency key, unique per user (8–64
+  chars). A retried or double-fired POST carrying the same key returns the scan
+  it already started instead of charging for a second one. Omitting it is legal
+  and simply forgoes the protection.
 - **`source: "pixelscope"`** is accepted in the body but grants nothing on its
   own — the caller's plan is what decides, and a Free plan is rejected.
 - Candidate `matchScore` is **Scrydex's raw scale (~0.7–1.3+, unbounded), not a

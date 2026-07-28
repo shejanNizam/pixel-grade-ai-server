@@ -134,6 +134,11 @@ export const validateImageSet = (
  *
  * `requireCredits` middleware has already rejected the obvious no-balance case;
  * the debit here is the authoritative one and is atomic (see credit.service).
+ *
+ * The scan is the only endpoint that spends credits, so it is also the only one
+ * that needs an idempotency key: `clientRequestId` makes a retried, double-
+ * clicked, or double-mounted request resolve to the scan it already started
+ * instead of charging for a second one.
  */
 const createAnalysis = async (
   userId: string,
@@ -142,20 +147,53 @@ const createAnalysis = async (
     game: CardGame;
     language?: string;
     images: UploadedImage[];
+    clientRequestId?: string;
   },
 ) => {
   validateImageSet(payload.source, payload.images);
 
   const imageSetHash = computeImageSetHash(payload.images);
 
-  const analysis = await CardAnalysis.create({
-    user: userId,
-    source: payload.source,
-    game: payload.game,
-    language: payload.language,
-    imageSetHash,
-    status: AnalysisStatus.identifying,
-  });
+  // Fast path: the caller is visibly retrying a request we already have.
+  if (payload.clientRequestId) {
+    const existing = await CardAnalysis.findOne({
+      user: userId,
+      clientRequestId: payload.clientRequestId,
+    });
+    if (existing) return existing;
+  }
+
+  let analysis;
+  try {
+    analysis = await CardAnalysis.create({
+      user: userId,
+      source: payload.source,
+      game: payload.game,
+      language: payload.language,
+      imageSetHash,
+      status: AnalysisStatus.identifying,
+      ...(payload.clientRequestId
+        ? { clientRequestId: payload.clientRequestId }
+        : {}),
+    });
+  } catch (error) {
+    // Lost the race against a concurrent duplicate — the unique index caught
+    // what the lookup above was too early to see. Return the winner's scan;
+    // only one of the two will have been charged.
+    const duplicate =
+      typeof error === "object" &&
+      error !== null &&
+      (error as { code?: number }).code === 11000;
+
+    if (duplicate && payload.clientRequestId) {
+      const winner = await CardAnalysis.findOne({
+        user: userId,
+        clientRequestId: payload.clientRequestId,
+      });
+      if (winner) return winner;
+    }
+    throw error;
+  }
 
   await AnalysisImage.insertMany(
     payload.images.map((image) => ({ ...image, analysis: analysis._id })),
@@ -307,6 +345,85 @@ const confirmCard = async (
   return analysis;
 };
 
+/** The two states a scan can be abandoned in: mid-identification (the request
+ *  died) and awaiting_confirmation (the user walked away from the picker). */
+const REFUNDABLE_STATUSES = [
+  AnalysisStatus.identifying,
+  AnalysisStatus.awaiting_confirmation,
+];
+
+/**
+ * End a scan that will never become a report, and give the credits back.
+ *
+ * 10 credits buys a finished grading report. A scan the user dropped at the
+ * confirmation screen delivered nothing, so charging for it is wrong — this is
+ * what the user's "Cancel" button calls, and what the sweeper calls for the
+ * ones nobody cancelled explicitly.
+ *
+ * Idempotent end to end: the status guard stops the second call, and
+ * `refundScan` is itself claim-based, so even a simultaneous cancel-and-sweep
+ * refunds exactly once.
+ */
+const cancelAnalysis = async (userId: string, analysisId: string) => {
+  const analysis = await CardAnalysis.findOne({
+    _id: analysisId,
+    user: userId,
+  });
+  if (!analysis) throw new AppError(httpStatus.NOT_FOUND, "Analysis not found");
+
+  if (analysis.status === AnalysisStatus.graded) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "This scan has already been graded and cannot be canceled.",
+    );
+  }
+
+  // Already ended — report success rather than erroring, so a close-then-retry
+  // in the UI is harmless.
+  if (!REFUNDABLE_STATUSES.includes(analysis.status)) return analysis;
+
+  analysis.status = AnalysisStatus.canceled;
+  await analysis.save();
+
+  // The images and the analysis row survive: an abandoned scan is still
+  // training data, and the user's non-choice is itself a signal.
+  await CreditServices.refundScan(userId, analysis._id);
+
+  return analysis;
+};
+
+/**
+ * Refund every scan left unconfirmed past the timeout.
+ *
+ * Backstop for the cancel endpoint, which only fires when the browser is still
+ * open to send it — a closed tab, a crash, or a lost connection would otherwise
+ * leave the credits gone forever. Returns a count so the job can log it.
+ */
+const sweepAbandonedScans = async (olderThanMinutes: number) => {
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60_000);
+
+  const stale = await CardAnalysis.find({
+    status: { $in: REFUNDABLE_STATUSES },
+    createdAt: { $lt: cutoff },
+  }).select("_id user");
+
+  let refunded = 0;
+  for (const analysis of stale) {
+    try {
+      await cancelAnalysis(String(analysis.user), String(analysis._id));
+      refunded += 1;
+    } catch (error) {
+      // One stuck scan must not stop the sweep for everyone else.
+      logger.error("Failed to refund an abandoned scan", {
+        analysisId: String(analysis._id),
+        error,
+      });
+    }
+  }
+
+  return { examined: stale.length, refunded };
+};
+
 const getMyAnalyses = async (userId: string, query: Record<string, string>) => {
   const queryBuilder = new QueryBuilder<ICardAnalysis>(
     CardAnalysis.find({ user: userId })
@@ -341,6 +458,8 @@ const getAnalysis = async (userId: string, analysisId: string) => {
 export const AnalysisServices = {
   createAnalysis,
   confirmCard,
+  cancelAnalysis,
+  sweepAbandonedScans,
   getMyAnalyses,
   getAnalysis,
   computeImageSetHash,

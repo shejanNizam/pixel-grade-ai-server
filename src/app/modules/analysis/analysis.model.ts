@@ -29,6 +29,7 @@ export const cardAnalysisSchema = new Schema<ICardAnalysis>(
       enum: Object.values(AnalysisStatus),
       default: AnalysisStatus.identifying,
     },
+    clientRequestId: { type: String },
     bestMatchCard: { type: Schema.Types.ObjectId, ref: "Card" },
     confirmedCard: { type: Schema.Types.ObjectId, ref: "Card" },
     wasCorrected: { type: Boolean, default: false },
@@ -45,6 +46,18 @@ cardAnalysisSchema.index({ user: 1, createdAt: -1 });
 // their own analysis. The grading *cache* dedupes on this hash, not the record.
 cardAnalysisSchema.index({ imageSetHash: 1 });
 cardAnalysisSchema.index({ status: 1 });
+// Idempotency. Scoped to the user so two accounts can never collide on a
+// guessed key, and partial so the many older rows without one do not all
+// collide on `null`.
+cardAnalysisSchema.index(
+  { user: 1, clientRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientRequestId: { $type: "string" } },
+  },
+);
+// Drives the abandoned-scan sweeper, which scans by status and age.
+cardAnalysisSchema.index({ status: 1, createdAt: 1 });
 
 export const CardAnalysis = model<ICardAnalysis>(
   "CardAnalysis",

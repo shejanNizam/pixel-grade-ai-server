@@ -25,6 +25,7 @@ const createAnalysis = catchAsync(async (req: Request, res: Response) => {
     game: (req.body.game as CardGame) ?? CardGame.pokemon,
     language: req.body.language,
     images,
+    clientRequestId: req.body.clientRequestId,
   });
 
   sendResponse(res, {
@@ -46,6 +47,20 @@ const confirmCard = catchAsync(async (req: Request, res: Response) => {
     statusCode: httpStatus.OK,
     success: true,
     message: "Card confirmed — grading can now begin.",
+    data: result,
+  });
+});
+
+const cancelAnalysis = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const result = await AnalysisServices.cancelAnalysis(
+    userId as string,
+    req.params.id as string,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Scan canceled — your credits have been returned.",
     data: result,
   });
 });
@@ -82,6 +97,7 @@ const getAnalysis = catchAsync(async (req: Request, res: Response) => {
 export const AnalysisControllers = {
   createAnalysis,
   confirmCard,
+  cancelAnalysis,
   getMyAnalyses,
   getAnalysis,
 };

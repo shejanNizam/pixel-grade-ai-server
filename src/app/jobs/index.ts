@@ -1,6 +1,10 @@
 import cron from "node-cron";
 import { withCronLock } from "../utils/cronLock";
-import { FREE_DAILY_CREDITS } from "../constants";
+import {
+  ABANDONED_SCAN_TIMEOUT_MINUTES,
+  FREE_DAILY_CREDITS,
+} from "../constants";
+import { AnalysisServices } from "../modules/analysis/analysis.service";
 import { CreditWallet } from "../modules/credit/credit.model";
 import { CreditServices } from "../modules/credit/credit.service";
 import { CreditInterval } from "../modules/plan/plan.interface";
@@ -144,11 +148,40 @@ const startMonthlyCreditGrant = () =>
     }),
   );
 
+/**
+ * Abandoned-scan refunds, every 10 minutes.
+ *
+ * A scan debits up-front because that is what pays for the vendor's
+ * identification call, but the rule the credits actually express is "10 credits
+ * per finished report". The cancel endpoint covers the user who closes the
+ * dialog; this covers everyone whose browser never got the chance to send it —
+ * a closed tab, a crash, a dropped connection.
+ *
+ * Runs often and cheaply: the query is an indexed status+age lookup that
+ * matches nothing on most passes.
+ */
+const startAbandonedScanSweep = () =>
+  cron.schedule("*/10 * * * *", () =>
+    withCronLock("abandoned-scan-sweep", 60 * 9, async () => {
+      try {
+        const result = await AnalysisServices.sweepAbandonedScans(
+          ABANDONED_SCAN_TIMEOUT_MINUTES,
+        );
+        if (result.refunded > 0) {
+          logger.info("Abandoned scans refunded", result);
+        }
+      } catch (error) {
+        logger.error("Abandoned scan sweep failed", { error });
+      }
+    }),
+  );
+
 export const startJobs = () => {
   startPriceRefresh();
   startDailyCreditGrant();
   startMonthlyCreditGrant();
+  startAbandonedScanSweep();
   logger.info(
-    "Scheduled jobs started (daily price refresh, daily/monthly credits)",
+    "Scheduled jobs started (daily price refresh, daily/monthly credits, abandoned-scan sweep)",
   );
 };

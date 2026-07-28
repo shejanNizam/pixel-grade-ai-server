@@ -52,6 +52,22 @@ export const creditLedgerSchema = new Schema<ICreditLedger>(
 // Retained indefinitely for audit and admin analytics — never pruned.
 creditLedgerSchema.index({ user: 1, createdAt: -1 });
 
+/**
+ * One debit and at most one refund per scan, enforced by the database.
+ *
+ * The service checks before refunding, but a check-then-write cannot survive
+ * two concurrent cancels (a user closing the dialog at the same moment the
+ * sweeper picks the scan up). This index makes the second write fail outright,
+ * so a scan can never be refunded twice and mint credits.
+ */
+creditLedgerSchema.index(
+  { analysis: 1, reason: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { analysis: { $exists: true } },
+  },
+);
+
 export const CreditLedger = model<ICreditLedger>(
   "CreditLedger",
   creditLedgerSchema,

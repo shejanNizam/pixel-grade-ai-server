@@ -84,8 +84,21 @@ const gradeAnalysis = async (userId: string, analysisId: string) => {
       "Confirm the card match before grading.",
     );
   }
+  // A canceled or failed scan has already had its credits returned. Grading it
+  // now would hand out a report nobody paid for.
+  if (
+    analysis.status === AnalysisStatus.canceled ||
+    analysis.status === AnalysisStatus.failed
+  ) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "This scan was canceled and its credits refunded. Start a new scan to grade this card.",
+    );
+  }
   if (analysis.status === AnalysisStatus.graded) {
-    const existing = await GradingReport.findOne({ analysis: analysis._id });
+    const existing = await GradingReport.findOne({
+      analysis: analysis._id,
+    }).populate("card");
     if (existing) return existing;
   }
 
@@ -103,13 +116,38 @@ const gradeAnalysis = async (userId: string, analysisId: string) => {
   let result = await readCache(key);
 
   if (!result) {
-    const fresh = await GradingProvider.grade({
-      imageUrls: images.map((i) => i.imageUrl),
-      cardName: card?.name,
-      cardSet: card?.setExpansion,
-    });
-    result = fresh;
-    await writeCache(key, fresh);
+    try {
+      const fresh = await GradingProvider.grade({
+        imageUrls: images.map((i) => i.imageUrl),
+        cardName: card?.name,
+        cardSet: card?.setExpansion,
+      });
+      result = fresh;
+      await writeCache(key, fresh);
+    } catch (error) {
+      // The scan was paid for at identification, but the invariant the credits
+      // express is "10 credits per finished report" — and this one produced
+      // none. Refund here rather than in the cancel path, because only here is
+      // it certain the model never returned: a cancel racing an in-flight
+      // grade could otherwise refund a scan that is about to succeed.
+      analysis.status = AnalysisStatus.failed;
+      await analysis.save();
+
+      try {
+        await CreditServices.refundScan(userId, analysis._id);
+      } catch (refundError) {
+        // Never mask the grading failure with a refund failure, but never lose
+        // it either — the sweeper does not cover confirmed scans, so an
+        // unlogged failure here is credits silently gone.
+        logger.error("Failed to refund credits after a failed grade", {
+          analysisId: String(analysis._id),
+          userId,
+          error: refundError,
+        });
+      }
+
+      throw error;
+    }
   }
 
   // Server-derived, from the stored analysis and the model's confidence. The
@@ -146,7 +184,10 @@ const gradeAnalysis = async (userId: string, analysisId: string) => {
     `${card?.name ?? "Your card"} graded ${result.grade} (${result.gradeLabel}).`,
   );
 
-  return report;
+  // Populated on the way out: the result screen shows the card's name, number,
+  // and set alongside the grade, and a bare ObjectId would leave it with
+  // nothing to render but the grade band.
+  return report.populate("card");
 };
 
 const getMyReports = async (userId: string, query: Record<string, string>) => {

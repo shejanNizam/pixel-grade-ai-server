@@ -1,5 +1,6 @@
 import request from "supertest";
 import app from "../app";
+import { AnalysisRoutes } from "../app/modules/analysis/analysis.route";
 import { PriceRoutes } from "../app/modules/price/price.route";
 
 /**
@@ -52,5 +53,41 @@ describe("dashboard and reporting routes", () => {
     expect(historyAt).toBeGreaterThanOrEqual(0);
     expect(paramAt).toBeGreaterThanOrEqual(0);
     expect(historyAt).toBeLessThan(paramAt);
+  });
+});
+
+/**
+ * The refund path for an abandoned scan.
+ *
+ * Credits are debited when identification starts, so cancel is what keeps the
+ * client's rule — 10 credits buys a finished report — true for a user who never
+ * picked a card. If this route stops being reachable, every abandoned scan
+ * silently costs 10 credits until the sweeper catches up.
+ */
+describe("scan cancellation", () => {
+  it("PATCH /analysis/:id/cancel is registered and requires auth", async () => {
+    const res = await request(app).patch(
+      "/api/v1/analysis/665f1c2ab7e6d21f3c9a1b2d/cancel",
+    );
+
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(403);
+  });
+
+  /**
+   * Checked against the router stack, not over HTTP: `/:id/confirm` and
+   * `/:id/cancel` are distinct literals so neither can shadow the other, but a
+   * future `/:id/:action` would swallow both and still answer 403. Asserting
+   * both paths exist by name is what would catch that.
+   */
+  it("keeps confirm and cancel as separate literal routes", () => {
+    const stack = (
+      AnalysisRoutes as unknown as { stack: { route?: { path: string } }[] }
+    ).stack;
+
+    const paths = stack.map((layer) => layer.route?.path).filter(Boolean);
+
+    expect(paths).toContain("/:id/confirm");
+    expect(paths).toContain("/:id/cancel");
   });
 });
