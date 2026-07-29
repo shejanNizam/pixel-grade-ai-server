@@ -32,6 +32,27 @@ export interface IGradingReportInitial {
    *  test; the other half is that the upload came through PixelScope. */
   confidence: number;
   reasoning?: string;
+  /** Assessment of the photographs, made before the card was graded. Confidence
+   *  tracks this — it is what separates "bad photo" from "bad card". */
+  imageQuality?: {
+    score: number;
+    issues: string[];
+  };
+  /** Measured front border ratios, as percentages of the total border on each
+   *  axis. 50/50 is perfectly centred. Backs the centering sub-score with a
+   *  number the user can check rather than an impression. */
+  centering?: {
+    leftPct: number;
+    topPct: number;
+  };
+  /** Every defect the model found, itemised. Each sub-score below 10 should be
+   *  explained by at least one entry here. */
+  detectedDefects?: {
+    category: string;
+    severity: string;
+    location: string;
+    description: string;
+  }[];
   /** SERVER-SET ONLY. Never accept this from a client payload. */
   pixelVerified: boolean;
   /** Which model produced the grade — required to interpret old reports after

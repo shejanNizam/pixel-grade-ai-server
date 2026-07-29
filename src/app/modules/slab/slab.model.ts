@@ -23,6 +23,8 @@ export const slabLabelSchema = new Schema<ISlabLabel>(
     heightMm: { type: Number, default: SLAB_DEFAULTS.heightMm },
     openingWMm: { type: Number, default: SLAB_DEFAULTS.openingWidthMm },
     openingHMm: { type: Number, default: SLAB_DEFAULTS.openingHeightMm },
+    labelWMm: { type: Number, default: SLAB_DEFAULTS.labelWidthMm },
+    labelHMm: { type: Number, default: SLAB_DEFAULTS.labelHeightMm },
     bleedMm: { type: Number, default: SLAB_DEFAULTS.bleedMm },
     safeMm: { type: Number, default: SLAB_DEFAULTS.safeMm },
     version: { type: Number, default: 1, min: 1 },

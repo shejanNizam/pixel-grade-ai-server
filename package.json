@@ -8,10 +8,11 @@
     "lint": "npx eslint ./src",
     "dev": "tsx watch src/server.ts",
     "dev:local": "tsx watch --env-file=.env src/server.ts",
-    "start": "node --env-file=.env dist/server.js",
+    "start": "node dist/server.js",
     "test": "jest",
     "test:watch": "jest --watchAll",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "start:local": "node --env-file-if-exists=.env dist/server.js"
   },
   "keywords": [
     "backend",
@@ -28,6 +29,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "^6.0.0",
     "cloudinary": "^1.41.3",
     "compression": "^1.8.1",
@@ -53,6 +55,7 @@
     "passport-google-oauth20": "^2.0.0",
     "passport-local": "^1.0.0",
     "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
     "redis": "^6.0.0",
     "sharp": "^0.35.3",
     "socket.io": "^4.8.3",
@@ -64,7 +67,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@socket.io/redis-adapter": "^8.3.0",
     "@types/bcrypt": "^6.0.0",
     "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.10",
@@ -83,6 +85,7 @@
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/passport-local": "^1.0.38",
+    "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.2.0",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",

@@ -4,6 +4,22 @@ import { IUser, UserRole } from "./user.interface";
 export const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true },
+    username: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      // `sparse` is required, not cosmetic: a plain unique index treats every
+      // user without a username as holding the same `null`, so the second
+      // account created would collide on it.
+      unique: true,
+      sparse: true,
+      minlength: 3,
+      maxlength: 24,
+      match: [
+        /^[a-z0-9_]+$/,
+        "Username may only contain lowercase letters, numbers, and underscores",
+      ],
+    },
     email: { type: String, required: true, unique: true },
     password: { type: String, select: false },
     phone: { type: String },

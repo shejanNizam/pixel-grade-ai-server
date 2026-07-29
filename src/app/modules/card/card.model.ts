@@ -1,5 +1,5 @@
 import { model, Schema } from "mongoose";
-import { CardGame, ICard } from "./card.interface";
+import { CardGame, ICard, PriceBasis } from "./card.interface";
 
 export const cardSchema = new Schema<ICard>(
   {
@@ -17,6 +17,15 @@ export const cardSchema = new Schema<ICard>(
     rarity: { type: String },
     officialImageUrl: { type: String },
     latestPrice: { type: Number },
+    // Defaulted rather than optional: an unlabelled price is the ambiguity the
+    // client reported, and everything the pricing provider returns today is a
+    // raw comp. A graded price must set this explicitly.
+    priceBasis: {
+      type: String,
+      enum: Object.values(PriceBasis),
+      default: PriceBasis.raw,
+    },
+    priceGradeRef: { type: String },
     currency: { type: String, default: "USD" },
     lastPricedAt: { type: Date },
   },

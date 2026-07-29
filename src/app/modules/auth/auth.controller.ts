@@ -8,7 +8,7 @@ import passport from "passport";
 import { configs } from "../../config/index";
 import AppError from "../../errorHelpers/AppError";
 import sendResponse from "../../utils/sendResponse";
-import { setAuthCookie } from "../../utils/setCookie";
+import { clearAuthCookie, setAuthCookie } from "../../utils/setCookie";
 import { createUserTokens } from "../../utils/userTokens";
 import { IUser } from "../user/user.interface";
 import { AuthServices } from "./auth.service";
@@ -96,16 +96,9 @@ const getNewAccessToken = catchAsync(
 
 const logout = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    res.clearCookie("accessToken", {
-      httpOnly: true,
-      secure: configs.node_env === "production",
-      sameSite: "lax",
-    });
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-    });
+    // Must mirror the attributes setAuthCookie wrote, or the browser treats
+    // this as a different cookie and the clear silently does nothing.
+    clearAuthCookie(res);
 
     sendResponse(res, {
       statusCode: httpStatus.OK,

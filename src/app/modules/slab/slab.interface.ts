@@ -32,6 +32,11 @@ export interface ISlabLabelInitial {
   /** The card window. Fixed — never shifts relative to the trim. */
   openingWMm: number;
   openingHMm: number;
+  /** The grading label band above the window. Stored per label like every
+   *  other dimension: labels already exported must keep the layout they were
+   *  sold at even after the printer's spec moves again. */
+  labelWMm: number;
+  labelHMm: number;
   bleedMm: number;
   safeMm: number;
   /** Increments on each regenerate. Labels are kept, not overwritten. */

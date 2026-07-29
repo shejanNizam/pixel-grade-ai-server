@@ -46,6 +46,37 @@ const PROMPT_PREAMBLE =
   "Purely decorative: absolutely no text, no letters, no numbers, no logos, " +
   "no people, no creatures, no recognisable objects. Edge-to-edge, portrait. ";
 
+/** What the slab pipeline knows about the card being framed. */
+export interface CardArtContext {
+  cardName?: string;
+  setExpansion?: string;
+}
+
+/**
+ * Turns the confirmed card into art direction for the backdrop.
+ *
+ * The client asked for backgrounds that "match the scanned card" (2026-07-29).
+ * What that can safely mean is palette and mood — an evergreen forest cast
+ * behind a Grass-type, embers behind a Fire-type — because the card artwork
+ * itself is the publisher's copyrighted work and reproducing or extending it
+ * onto a slab we sell would be a derivative of it. So the card name is passed
+ * as a COLOUR AND ATMOSPHERE cue, and the no-creatures/no-text constraint from
+ * PROMPT_PREAMBLE is restated here rather than relaxed, because naming a
+ * Pokémon in a prompt is precisely what tempts the model to draw one.
+ */
+const buildArtDirection = (context?: CardArtContext): string => {
+  const subject = [context?.cardName, context?.setExpansion]
+    .filter(Boolean)
+    .join(", ");
+  if (!subject) return "";
+
+  return (
+    `. Tune the colour palette and atmosphere so it complements a trading card ` +
+    `themed around "${subject}". Take ONLY colour and mood from that theme — ` +
+    `still no creatures, characters, text, or card imagery of any kind.`
+  );
+};
+
 const MODEL = "gpt-image-1";
 
 /** Largest portrait size gpt-image-1 offers; see the SIZE note above. */
@@ -89,6 +120,7 @@ const generateBackground = async (
   style: SlabStyle,
   widthPx: number,
   heightPx: number,
+  cardContext?: CardArtContext,
 ): Promise<string> => {
   const prompt = STYLE_PROMPTS[style];
   if (!prompt) {
@@ -101,7 +133,7 @@ const generateBackground = async (
 
   const response = await getClient().images.generate({
     model: MODEL,
-    prompt: PROMPT_PREAMBLE + prompt,
+    prompt: PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext),
     size: OUTPUT_SIZE,
     quality: QUALITY,
     n: 1,

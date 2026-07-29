@@ -25,6 +25,43 @@ export const gradingReportSchema = new Schema<IGradingReport>(
     scoreCentering: subScore,
     confidence: { type: Number, required: true, min: 0, max: 100 },
     reasoning: { type: String },
+    // All three are optional so reports written before pixelgrade-v2 still
+    // load. Nothing back-fills them — an old report keeps the grade it was
+    // issued with, and the UI degrades to the v1 layout when they are absent.
+    imageQuality: {
+      type: new Schema(
+        {
+          score: { type: Number, min: 0, max: 100 },
+          issues: { type: [String], default: [] },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
+    centering: {
+      type: new Schema(
+        {
+          leftPct: { type: Number, min: 0, max: 100 },
+          topPct: { type: Number, min: 0, max: 100 },
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
+    detectedDefects: {
+      type: [
+        new Schema(
+          {
+            category: { type: String },
+            severity: { type: String },
+            location: { type: String },
+            description: { type: String },
+          },
+          { _id: false },
+        ),
+      ],
+      default: undefined,
+    },
     // Server-set only. There is deliberately no validation path that accepts
     // this from a request body — see the grading service.
     pixelVerified: { type: Boolean, default: false },

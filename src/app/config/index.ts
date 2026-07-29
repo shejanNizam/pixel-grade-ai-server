@@ -73,8 +73,12 @@ const envSchema = z.object({
   OPENAI_GRADING_MODEL: z.string().default("gpt-4o"),
   /** Stamped onto every report AND used in the grading cache key. Bump it when
    *  the model or prompt changes, so old reports keep their original grade and
-   *  new scans re-grade instead of mixing two models under one key. */
-  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v1"),
+   *  new scans re-grade instead of mixing two models under one key.
+   *
+   *  v2 (2026-07-29): reworked prompt to the client's ordered workflow, plus
+   *  imageQuality / measured centering / itemised defects in the output schema.
+   *  Reports issued under v1 keep their v1 grades — they are not back-filled. */
+  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v2"),
 
   // Slab background generation — vendor unconfirmed.
   IMAGEGEN_API_KEY: z.string().optional(),

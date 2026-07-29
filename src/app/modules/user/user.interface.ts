@@ -14,6 +14,11 @@ export interface IAvatar {
 export interface IUserInitial {
   _id?: Types.ObjectId;
   name: string;
+  /** Public handle shown on the Creator Profile in place of the email address
+   *  (client, 2026-07-29). Optional: accounts created before this existed, and
+   *  Google sign-ups, have no username until the user picks one. Unique when
+   *  present, lower-cased on write so "Ash" and "ash" cannot both be taken. */
+  username?: string;
   email: string;
   phone?: string;
   password?: string;

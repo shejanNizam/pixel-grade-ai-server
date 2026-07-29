@@ -73,12 +73,18 @@ export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png"] as const;
 // ---------------------------------------------------------------------------
 
 export const SLAB_DEFAULTS = {
-  /** Overall trim, in millimetres. */
-  widthMm: 94,
-  heightMm: 138,
+  /** Overall trim, in millimetres. Prototype V1 feedback (2026-07-29) moved
+   *  this from 94 × 138 to match the physical holder the client selected. */
+  widthMm: 80,
+  heightMm: 135,
   /** The card window. Fixed — it never shifts relative to the trim. */
   openingWidthMm: 65,
   openingHeightMm: 90,
+  /** The grading label band, which sits ABOVE the card window. Its height is
+   *  the tightest constraint on the whole design: 20 mm is 236 px at 300 DPI
+   *  and has to hold the wordmark, card name, grade, Pixel ID, and QR. */
+  labelWidthMm: 70,
+  labelHeightMm: 20,
   /** Printed area extending past the trim line, all four sides. */
   bleedMm: 3,
   /** Keep-clear margin inside the trim for text, QR, and grade. */
@@ -87,8 +93,10 @@ export const SLAB_DEFAULTS = {
 
 export const SLAB_EXPORT_DPI = 300;
 
-/** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI. */
-export const SLAB_CANVAS_PX = { width: 1181, height: 1701 } as const;
+/** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI — (80+6) × (135+6) mm.
+ *  Derived from SLAB_DEFAULTS; kept as a literal for the frontend preview and
+ *  for tests that assert the export size without instantiating a label. */
+export const SLAB_CANVAS_PX = { width: 1016, height: 1665 } as const;
 
 /** Background art styles. Each maps to its own image-generation prompt. */
 export const SLAB_STYLES = ["cosmic", "inferno", "aurora", "vintage"] as const;

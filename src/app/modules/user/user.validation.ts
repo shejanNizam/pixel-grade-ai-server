@@ -1,6 +1,18 @@
 import z from "zod";
 import { UserRole } from "./user.interface";
 
+/** Shared so create and update cannot drift into two different rules. */
+const usernameSchema = z
+  .string({ error: "Username must be string" })
+  .trim()
+  .toLowerCase()
+  .min(3, { message: "Username must be at least 3 characters long." })
+  .max(24, { message: "Username cannot exceed 24 characters." })
+  .regex(/^[a-z0-9_]+$/, {
+    message:
+      "Username may only contain letters, numbers, and underscores — no spaces or symbols.",
+  });
+
 export const createUserZodSchema = z.object({
   name: z
     .string({ error: "Name must be string" })
@@ -15,6 +27,7 @@ export const createUserZodSchema = z.object({
     .regex(/^(?=.*[A-Z])/, { message: "Password must contain at least 1 uppercase letter." })
     .regex(/^(?=.*[!@#$%^&*])/, { message: "Password must contain at least 1 special character." })
     .regex(/^(?=.*\d)/, { message: "Password must contain at least 1 number." }),
+  username: usernameSchema.optional(),
   phone: z
     .string({ error: "Phone must be string" })
     .regex(/^\+[1-9]\d{6,14}$/, "Phone must be in E.164 format e.g. +8801712345678")
@@ -28,6 +41,7 @@ export const updateUserZodSchema = z.object({
     .min(2, { message: "Name must be at least 2 characters long." })
     .max(50, { message: "Name cannot exceed 50 characters." })
     .optional(),
+  username: usernameSchema.optional(),
   phone: z
     .string({ error: "Phone must be string" })
     .regex(/^\+[1-9]\d{6,14}$/, "Phone must be in E.164 format e.g. +8801712345678")

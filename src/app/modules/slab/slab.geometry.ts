@@ -33,18 +33,25 @@ export interface SlabLayout {
   safeY: number;
   safeWidth: number;
   safeHeight: number;
-  /** Space below the card window, where the label text goes. */
+  /** The grading label band, ABOVE the card window. */
+  labelX: number;
   labelY: number;
+  labelWidth: number;
   labelHeight: number;
 }
 
 /**
  * Resolves a label's stored millimetre dimensions into pixel coordinates.
  *
- * The card window sits slightly above true vertical centre: the label text
- * occupies the space beneath it, and a mathematically centred window leaves a
- * cramped text band and a dead strip up top. Offsetting by a third of the
- * leftover vertical space is the standard slab proportion.
+ * Layout, top to bottom: safe margin → label band → gap → card window → the
+ * remaining space at the bottom. The label sits above the window (client
+ * feedback 2026-07-29, prototype V1); it used to sit below, and the difference
+ * is structural rather than cosmetic because the window position is derived
+ * from where the band ends.
+ *
+ * The leftover vertical space is split one-third above the window and
+ * two-thirds below. An even split reads as though the card has slipped down
+ * the holder — the eye expects more room beneath a framed object than above it.
  */
 export const computeLayout = (label: ISlabLabel): SlabLayout => {
   const canvasWidth = mmToPx(label.widthMm + label.bleedMm * 2);
@@ -55,20 +62,29 @@ export const computeLayout = (label: ISlabLabel): SlabLayout => {
   const trimWidth = mmToPx(label.widthMm);
   const trimHeight = mmToPx(label.heightMm);
 
+  const safePx = mmToPx(label.safeMm);
+  const safeX = trimX + safePx;
+  const safeY = trimY + safePx;
+  const safeWidth = trimWidth - safePx * 2;
+  const safeHeight = trimHeight - safePx * 2;
+
+  const labelWidth = mmToPx(label.labelWMm);
+  const labelHeight = mmToPx(label.labelHMm);
+  const labelX = trimX + Math.round((trimWidth - labelWidth) / 2);
+  const labelY = safeY;
+
   const openingWidth = mmToPx(label.openingWMm);
   const openingHeight = mmToPx(label.openingHMm);
-
   const openingX = trimX + Math.round((trimWidth - openingWidth) / 2);
-  const verticalSlack = trimHeight - openingHeight;
-  const openingY = trimY + Math.round(verticalSlack / 3);
 
-  const safeX = trimX + mmToPx(label.safeMm);
-  const safeY = trimY + mmToPx(label.safeMm);
-  const safeWidth = trimWidth - mmToPx(label.safeMm) * 2;
-  const safeHeight = trimHeight - mmToPx(label.safeMm) * 2;
-
-  const labelY = openingY + openingHeight;
-  const labelHeight = trimY + trimHeight - labelY - mmToPx(label.safeMm);
+  // Guarded against a bad spec: if someone stores dimensions whose parts do not
+  // fit the trim, the window butts straight up against the band rather than
+  // being pushed off the bottom of the canvas.
+  const verticalSlack = Math.max(
+    0,
+    safeHeight - labelHeight - openingHeight,
+  );
+  const openingY = labelY + labelHeight + Math.round(verticalSlack / 3);
 
   return {
     canvasWidth,
@@ -85,7 +101,9 @@ export const computeLayout = (label: ISlabLabel): SlabLayout => {
     safeY,
     safeWidth,
     safeHeight,
+    labelX,
     labelY,
+    labelWidth,
     labelHeight,
   };
 };

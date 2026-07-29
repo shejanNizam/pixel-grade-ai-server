@@ -59,9 +59,15 @@ const startPriceRefresh = () =>
 /**
  * Daily Free-plan top-up, 00:05.
  *
- * `lastDailyGrantAt` guards the reset so a restart, a redeploy, or a manual
- * re-run on the same day cannot double-grant. Free credits do not roll over —
- * the grant is a reset to the daily amount, not an addition.
+ * This is a BACKSTOP, not the primary path. `CreditServices.ensureDailyAllowance`
+ * runs on every balance read and every scan, so an active user's allowance is
+ * settled by the calendar rather than by whether this process happened to be
+ * alive at 00:05. The sweep exists so dormant wallets still tick over and so
+ * the activity log gets a daily marker.
+ *
+ * Both paths share the same atomic `lastDailyGrantAt` claim, so the cron
+ * racing a user's own request cannot double-grant. Free credits do not roll
+ * over — the grant is a reset to the daily amount, not an addition.
  */
 const startDailyCreditGrant = () =>
   cron.schedule("5 0 * * *", () =>
@@ -81,12 +87,12 @@ const startDailyCreditGrant = () =>
       let granted = 0;
       for (const wallet of wallets) {
         try {
-          const plan = await CreditServices.resolvePlan(String(wallet.user));
-          // Only Free tops up daily; paid tiers are handled by the monthly job.
-          if (plan.creditInterval !== CreditInterval.daily) continue;
-
-          await CreditServices.grantAllowance(String(wallet.user));
-          granted += 1;
+          // Plan filtering and the double-grant guard both live inside
+          // ensureDailyAllowance — the cron must not reimplement either.
+          const result = await CreditServices.ensureDailyAllowance(
+            String(wallet.user),
+          );
+          if (result.granted) granted += 1;
         } catch (error) {
           logger.error("Daily credit grant failed for user", {
             userId: String(wallet.user),

@@ -4,6 +4,11 @@ import { configs } from "../../config/index";
 import { redisClient } from "../../config/redis.config";
 import AppError from "../../errorHelpers/AppError";
 import { GradingProvider } from "../../services/grading/index";
+import type {
+  CenteringMeasurement,
+  DetectedDefect,
+  ImageQuality,
+} from "../../services/grading/grading.types";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { logger } from "../../utils/logger";
 import { AnalysisStatus } from "../analysis/analysis.interface";
@@ -32,6 +37,13 @@ interface CachedGrade {
   scoreCentering: number;
   confidence: number;
   reasoning: string;
+  /** Present from pixelgrade-v2 onward. Optional because entries written by an
+   *  earlier version are still valid cache hits for their own model version —
+   *  the version is part of the key, so a v1 entry can only ever serve a v1
+   *  request. */
+  imageQuality?: ImageQuality;
+  centering?: CenteringMeasurement;
+  detectedDefects?: DetectedDefect[];
   modelVersion: string;
   raw: unknown;
 }
@@ -169,6 +181,9 @@ const gradeAnalysis = async (userId: string, analysisId: string) => {
     scoreCentering: result.scoreCentering,
     confidence: result.confidence,
     reasoning: result.reasoning,
+    imageQuality: result.imageQuality,
+    centering: result.centering,
+    detectedDefects: result.detectedDefects,
     pixelVerified,
     modelVersion: result.modelVersion,
     rawOutput: result.raw,

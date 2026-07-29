@@ -130,7 +130,72 @@ const getOrCreateWallet = async (userId: string) => {
   });
 };
 
+/** Midnight this morning, server time — the boundary a daily grant crosses. */
+const startOfToday = () => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
+/**
+ * Top up a Free wallet if today's allowance has not landed yet.
+ *
+ * The cron at 00:05 only fires in a process that is alive at 00:05. On a single
+ * instance that restarts, redeploys, or is simply down for ten minutes, the
+ * grant is skipped and never caught up — which is exactly the "20 daily credits
+ * do not refresh" report from prototype V1. Granting lazily on read makes the
+ * allowance a function of the calendar rather than of process uptime; the cron
+ * stays as a backstop so wallets nobody opens still tick over.
+ *
+ * The claim is a single conditional update, not a read-then-write: a dashboard
+ * that fires the balance, ledger, and scan requests in parallel at 00:01 must
+ * produce one grant, not three. Only the caller that moves `lastDailyGrantAt`
+ * past midnight writes a ledger row.
+ */
+const ensureDailyAllowance = async (userId: string) => {
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.isUnlimited) return { granted: false, balance: null };
+
+  const plan = await resolvePlan(userId);
+  if (
+    plan.creditInterval !== CreditInterval.daily ||
+    plan.creditAmount === null
+  ) {
+    return { granted: false, balance: wallet.balance };
+  }
+
+  const claimed = await CreditWallet.findOneAndUpdate(
+    {
+      user: userId,
+      isUnlimited: false,
+      $or: [
+        { lastDailyGrantAt: { $exists: false } },
+        { lastDailyGrantAt: null },
+        { lastDailyGrantAt: { $lt: startOfToday() } },
+      ],
+    },
+    { $set: { balance: plan.creditAmount, lastDailyGrantAt: new Date() } },
+    { returnDocument: "after" },
+  );
+
+  if (!claimed) return { granted: false, balance: wallet.balance };
+
+  // Free credits do not roll over, so the grant is a reset. The ledger records
+  // the delta it actually moved, which is negative when the user still held
+  // more than a day's allowance.
+  await recordEntry(
+    userId,
+    plan.creditAmount - wallet.balance,
+    CreditReason.grant_daily,
+    claimed.balance,
+  );
+
+  return { granted: true, balance: claimed.balance };
+};
+
 const getBalance = async (userId: string) => {
+  await ensureDailyAllowance(userId);
+
   const wallet = await getOrCreateWallet(userId);
   const plan = await resolvePlan(userId);
 
@@ -165,6 +230,11 @@ const spendForScan = async (
   analysisId: string | Types.ObjectId,
   session?: ClientSession,
 ) => {
+  // Settle today's allowance before reading the balance. Without this a Free
+  // user whose grant was missed is refused a scan they are entitled to, and
+  // only a visit to the balance widget would unstick them.
+  await ensureDailyAllowance(userId);
+
   const wallet = await getOrCreateWallet(userId);
 
   // Unlimited plans still get a ledger row so admin analytics can report
@@ -369,6 +439,7 @@ export const CreditServices = {
   spendForScan,
   refundScan,
   grantAllowance,
+  ensureDailyAllowance,
   adminAdjust,
   getLedger,
   resolvePlan,
