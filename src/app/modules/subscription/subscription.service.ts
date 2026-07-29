@@ -150,6 +150,16 @@ const activateFromWebhook = async (
     interval === BillingInterval.yearly
       ? `Billed yearly. Your ${plan.creditAmount ?? "unlimited"} credits refresh every month.`
       : `Billed monthly.`,
+    "/user-dashboard/subscription",
+  );
+
+  // Revenue event — staff see conversions as they happen rather than only in
+  // the monthly figures.
+  await NotificationServices.createForStaff(
+    NotifType.subscription_started,
+    `New ${plan.name} subscription`,
+    `Billed ${interval}.`,
+    "/admin/subscribed-users",
   );
 
   return subscription;
@@ -168,6 +178,15 @@ const markPastDue = async (stripeSubscriptionId: string) => {
     NotifType.subscription,
     "Payment failed",
     "We could not process your subscription payment. Update your payment method to keep your plan active.",
+    "/user-dashboard/subscription",
+  );
+
+  // Churn signal — worth a staff alert while the account can still be saved.
+  await NotificationServices.createForStaff(
+    NotifType.subscription_payment_failed,
+    "A subscription payment failed",
+    "The account is past due and may lapse.",
+    "/admin/subscribed-users",
   );
 
   return subscription;

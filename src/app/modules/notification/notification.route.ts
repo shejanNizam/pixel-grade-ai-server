@@ -3,10 +3,14 @@ import { checkAuth } from "../../middlewares/checkAuth";
 import validateRequest from "../../middlewares/validateRequest";
 import { UserRole } from "../user/user.interface";
 import { NotificationControllers } from "./notification.controller";
-import { updateNotificationSettingsZodSchema } from "./notification.validation";
+import {
+  broadcastNotificationZodSchema,
+  updateNotificationSettingsZodSchema,
+} from "./notification.validation";
 
 const router = Router();
 const anyUser = Object.values(UserRole);
+const staffOnly = [UserRole.admin, UserRole.super_admin];
 
 /**
  * @swagger
@@ -15,18 +19,69 @@ const anyUser = Object.values(UserRole);
  *     tags: [Notification]
  *     summary: Paginated notification history
  *     description: >
- *       Notifications are created server-side only — there is no POST endpoint.
+ *       Notifications are created server-side only from platform events — the
+ *       one exception is POST /notification/broadcast, which is admin-guarded.
  *       New notifications are also pushed live over Socket.io as
  *       `notification:new`.
+ *
+ *       Scoped to the caller AND to one audience. `audience=user` (default)
+ *       returns notifications about the caller's own activity; `audience=admin`
+ *       returns platform-operations alerts and is refused for non-staff.
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: audience
+ *         schema:
+ *           type: string
+ *           enum: [user, admin]
+ *           default: user
  *     responses:
  *       200:
  *         description: Notifications, newest first
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Non-staff requested the admin audience
  */
 router.get("/", checkAuth(...anyUser), NotificationControllers.getMyNotifications);
+
+/**
+ * @swagger
+ * /notification/broadcast:
+ *   post:
+ *     tags: [Notification]
+ *     summary: Send an announcement to every active user (admin only)
+ *     description: >
+ *       Writes a `system` notification to every active customer. Type and
+ *       audience are fixed server-side, so this cannot forge a grading or
+ *       billing message, and cannot address the staff queue. `link` must be an
+ *       in-app path.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title]
+ *             properties:
+ *               title: { type: string, maxLength: 120 }
+ *               body: { type: string, maxLength: 500 }
+ *               link: { type: string, example: "/user-dashboard/subscription" }
+ *     responses:
+ *       200:
+ *         description: Delivery counts
+ *       403:
+ *         description: Not staff
+ */
+router.post(
+  "/broadcast",
+  checkAuth(...staffOnly),
+  validateRequest(broadcastNotificationZodSchema),
+  NotificationControllers.broadcast,
+);
 
 /**
  * @swagger

@@ -25,6 +25,8 @@ const GUARDED_ROUTES = [
   "/api/v1/subscription/subscribers",
   "/api/v1/subscription/stats",
   "/api/v1/grading/report/665f1c2ab7e6d21f3c9a1b2d/pdf",
+  "/api/v1/notification",
+  "/api/v1/notification/unread-count",
 ];
 
 describe("dashboard and reporting routes", () => {
@@ -53,6 +55,24 @@ describe("dashboard and reporting routes", () => {
     expect(historyAt).toBeGreaterThanOrEqual(0);
     expect(paramAt).toBeGreaterThanOrEqual(0);
     expect(historyAt).toBeLessThan(paramAt);
+  });
+});
+
+/**
+ * The admin announcement endpoint.
+ *
+ * The only route in the system that mints a notification from a request rather
+ * than a platform event, so it is the only one that could be used to forge a
+ * message to every customer at once. It must never be reachable unauthenticated.
+ */
+describe("notification broadcast", () => {
+  it("POST /notification/broadcast is registered and guarded", async () => {
+    const res = await request(app)
+      .post("/api/v1/notification/broadcast")
+      .send({ title: "Scheduled maintenance" });
+
+    expect(res.status).not.toBe(404);
+    expect(res.status).toBe(403);
   });
 });
 

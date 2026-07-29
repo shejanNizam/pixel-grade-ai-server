@@ -24,6 +24,15 @@ const createTicket = async (
     message: payload.message,
   });
 
+  // Tell the staff queue. Before this, a new ticket notified nobody — it sat
+  // in the admin list until someone thought to look.
+  await NotificationServices.createForStaff(
+    NotifType.support_ticket_new,
+    "New support ticket",
+    payload.subject,
+    `/admin/support/${String(ticket._id)}`,
+  );
+
   return ticket;
 };
 
@@ -128,6 +137,16 @@ const addMessage = async (
       NotifType.support,
       "Support replied to your ticket",
       ticket.subject,
+      `/user-dashboard/support/${ticketId}`,
+    );
+  } else {
+    // A user reply reopens the ticket, so the staff queue has to hear about it
+    // — otherwise a follow-up question sits unread in an "answered" thread.
+    await NotificationServices.createForStaff(
+      NotifType.support_ticket_reply,
+      "User replied to a ticket",
+      ticket.subject,
+      `/admin/support/${ticketId}`,
     );
   }
 
