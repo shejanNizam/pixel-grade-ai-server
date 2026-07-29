@@ -6,24 +6,15 @@ import { SlabControllers } from "./slab.controller";
 import {
   createSlabLabelZodSchema,
   regenerateSlabZodSchema,
+  selectSlabVariantZodSchema,
 } from "./slab.validation";
 
 const router = Router();
 const anyUser = Object.values(UserRole);
 
-/**
- * @swagger
- * /slab/styles:
- *   get:
- *     tags: [Slab]
- *     summary: Available background styles
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: cosmic, inferno, aurora, vintage
- */
-router.get("/styles", checkAuth(...anyUser), SlabControllers.getStyles);
+// GET /slab/styles is gone (2026-07-30). Background artwork is no longer picked
+// from a fixed theme list — it is generated from the confirmed card as four
+// EXT. ART options, so there is nothing to enumerate.
 
 /**
  * @swagger
@@ -90,10 +81,13 @@ router.get("/:id", checkAuth(...anyUser), SlabControllers.getLabel);
  * /slab/{id}/regenerate:
  *   post:
  *     tags: [Slab]
- *     summary: Regenerate the background artwork
+ *     summary: Generate four completely new EXT. ART options
  *     description: >
- *       Replaces only the background — the card image, label text, and geometry
- *       are unchanged. Increments the label version.
+ *       Discards the current four options and generates a fresh set from the
+ *       confirmed card. Replaces only the artwork — the card image, label text,
+ *       and geometry are unchanged. Increments the label version.
+ *
+ *       COST: four billed image generations per call.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -104,13 +98,55 @@ router.get("/:id", checkAuth(...anyUser), SlabControllers.getLabel);
  *           type: string
  *     responses:
  *       200:
- *         description: Regenerated with new export URLs
+ *         description: Four new options, with the first selected
  */
 router.post(
   "/:id/regenerate",
   checkAuth(...anyUser),
   validateRequest(regenerateSlabZodSchema),
   SlabControllers.regenerate,
+);
+
+/**
+ * @swagger
+ * /slab/{id}/variant:
+ *   patch:
+ *     tags: [Slab]
+ *     summary: Choose which EXT. ART option the slab uses
+ *     description: >
+ *       Points the label's exports at one of the already-generated options.
+ *       Costs nothing at the image provider — every option was composited when
+ *       the batch was generated, so this only rebuilds the PDF.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [variantIndex]
+ *             properties:
+ *               variantIndex:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 4
+ *                 description: 1-based, matching the "EXT. ART n" label
+ *     responses:
+ *       200:
+ *         description: Label now exports the selected artwork
+ */
+router.patch(
+  "/:id/variant",
+  checkAuth(...anyUser),
+  validateRequest(selectSlabVariantZodSchema),
+  SlabControllers.selectVariant,
 );
 
 /**

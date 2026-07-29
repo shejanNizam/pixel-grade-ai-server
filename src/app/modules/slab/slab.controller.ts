@@ -26,12 +26,28 @@ const regenerate = catchAsync(async (req: Request, res: Response) => {
   const result = await SlabServices.regenerateBackground(
     userId as string,
     req.params.id as string,
-    req.body.styleId as SlabStyle | undefined,
   );
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,
-    message: "Background regenerated successfully!",
+    message: "Four new artwork options generated successfully!",
+    data: result,
+  });
+});
+
+/** Switches the selected EXT. ART option. Costs nothing at the provider —
+ *  all four were rendered when the batch was generated. */
+const selectVariant = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const result = await SlabServices.selectVariant(
+    userId as string,
+    req.params.id as string,
+    Number(req.body.variantIndex),
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Artwork selected successfully!",
     data: result,
   });
 });
@@ -78,20 +94,11 @@ const getLabel = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-const getStyles = catchAsync(async (_req: Request, res: Response) => {
-  sendResponse(res, {
-    statusCode: httpStatus.OK,
-    success: true,
-    message: "Slab styles retrieved successfully!",
-    data: SLAB_STYLES,
-  });
-});
-
 export const SlabControllers = {
   createLabel,
   regenerate,
+  selectVariant,
   preview,
   getMyLabels,
   getLabel,
-  getStyles,
 };

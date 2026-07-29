@@ -102,6 +102,29 @@ export const SLAB_CANVAS_PX = { width: 1016, height: 1665 } as const;
 export const SLAB_STYLES = ["cosmic", "inferno", "aurora", "vintage"] as const;
 export type SlabStyle = (typeof SLAB_STYLES)[number];
 
+/**
+ * What goes in the slab's card window.
+ *
+ * - `scan`      the user's own front photograph. The card that was actually
+ *               graded, wear and all. The honest choice for a grading product.
+ * - `catalogue` the publisher's official card image from the identification
+ *               service. Clean and straight, but a better-looking copy than
+ *               the one the grade describes.
+ * - `generated` an AI rendering of the card, from its metadata.
+ *
+ * ⚠️ `generated` was directed by the client on 2026-07-30 and carries risks
+ * they own, not us — see docs/OPEN-QUESTIONS.md. It also degrades: image
+ * models cannot render a card's text, HP, or set symbol legibly, and the
+ * provider frequently refuses the prompt outright. Every failure falls back
+ * down this list, so a slab always renders something real.
+ */
+export const SLAB_CARD_RENDER_MODES = [
+  "scan",
+  "catalogue",
+  "generated",
+] as const;
+export type SlabCardRenderMode = (typeof SLAB_CARD_RENDER_MODES)[number];
+
 // ---------------------------------------------------------------------------
 // Redis key prefixes
 //

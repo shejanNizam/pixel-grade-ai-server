@@ -3,7 +3,11 @@ import { Types } from "mongoose";
 import QRCode from "qrcode";
 import { uploadBufferToCloudinary } from "../../config/cloudinary.config";
 import { configs } from "../../config/index";
-import { SlabStyle, SLAB_STYLES } from "../../constants";
+import {
+  SlabCardRenderMode,
+  SlabStyle,
+  SLAB_STYLES,
+} from "../../constants";
 import AppError from "../../errorHelpers/AppError";
 import { ImageGenProvider } from "../../services/imagegen.provider";
 import { logger } from "../../utils/logger";
@@ -62,41 +66,133 @@ const buildQrDataUri = async (reportId: string): Promise<string | undefined> => 
   }
 };
 
-const fetchBuffer = async (url: string): Promise<Buffer> => {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new AppError(
-      httpStatus.BAD_GATEWAY,
-      `Could not fetch asset (${response.status}): ${url}`,
-    );
-  }
-  return Buffer.from(await response.arrayBuffer());
-};
+/** How long a single asset download may take before it is abandoned. */
+const ASSET_FETCH_TIMEOUT_MS = 60_000;
+const ASSET_FETCH_ATTEMPTS = 3;
 
 /**
- * The card image shown in the window.
+ * Downloads a slab asset (generated artwork, card image) into memory.
  *
- * Prefers the user's own front photo — a slab shows the card that was actually
- * graded, not a stock product shot. Falls back to the catalogue image only when
- * the scan has no front image (possible for a back-only PixelScope upload).
+ * Retried and time-boxed, which it was not originally — and that omission is
+ * what surfaced as a bare `TypeError: terminated` from undici. Node's fetch
+ * throws that when the connection drops mid-body, with no status and no URL,
+ * so it propagated to the client as the single word "terminated" with nothing
+ * to debug from.
+ *
+ * A `generated`-mode render pulls five freshly-uploaded multi-megabyte images
+ * from Cloudinary back-to-back, which is exactly the shape of traffic that
+ * hits a transient reset. One dropped connection should cost a retry, not the
+ * whole slab.
  */
-const resolveCardImageUrl = async (
+const fetchBuffer = async (url: string, label = "asset"): Promise<Buffer> => {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= ASSET_FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        // A 4xx will never succeed on retry; only 5xx and 429 are worth another go.
+        if (response.status < 500 && response.status !== 429) {
+          throw new AppError(
+            httpStatus.BAD_GATEWAY,
+            `Could not fetch ${label} (${response.status}).`,
+          );
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return Buffer.from(await response.arrayBuffer());
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+
+      lastError = error;
+      logger.warn("Slab asset fetch failed — retrying", {
+        label,
+        url,
+        attempt,
+        error: (error as Error)?.message,
+      });
+
+      if (attempt < ASSET_FETCH_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      }
+    }
+  }
+
+  throw new AppError(
+    httpStatus.BAD_GATEWAY,
+    `Could not download the ${label} after ${ASSET_FETCH_ATTEMPTS} attempts: ${
+      (lastError as Error)?.message ?? "unknown error"
+    }`,
+  );
+};
+
+/** The user's own front photograph — the card that was actually graded. */
+const scannedFrontUrl = async (
   analysisId: Types.ObjectId,
-  officialImageUrl?: string,
-): Promise<string> => {
+): Promise<string | undefined> => {
   const front = await AnalysisImage.findOne({
     analysis: analysisId,
     side: ImageSide.front,
   }).sort({ slotIndex: 1 });
 
-  const url = front?.imageUrl ?? officialImageUrl;
-  if (!url) {
-    throw new AppError(
-      httpStatus.BAD_REQUEST,
-      "No card image is available for this report.",
+  return front?.imageUrl;
+};
+
+/**
+ * Decides what goes in the slab's card window.
+ *
+ * Driven by SLAB_CARD_RENDER_MODE. Each mode degrades into the next rather
+ * than failing, so a slab always renders something: `generated` falls back to
+ * the catalogue image, which falls back to the user's scan.
+ *
+ * ⚠️ `generated` is a client directive (2026-07-30) taken over a written
+ * objection — see docs/OPEN-QUESTIONS.md. Under it the window holds an AI
+ * imitation of the card rather than the card, while the label beside it still
+ * carries a real grade and a scannable Pixel ID. The mode and the resulting
+ * URL are both recorded on the label so any slab can be audited for which it
+ * was. Default is `scan`.
+ */
+const resolveCardImage = async (
+  mode: SlabCardRenderMode,
+  analysisId: Types.ObjectId,
+  card: { name: string; setExpansion?: string; cardNumber?: string; rarity?: string; releaseYear?: number; officialImageUrl?: string },
+): Promise<{ url: string; source: SlabCardRenderMode }> => {
+  if (mode === "generated") {
+    const generated = await ImageGenProvider.generateCardImage({
+      cardName: card.name,
+      setExpansion: card.setExpansion,
+      cardNumber: card.cardNumber,
+      rarity: card.rarity,
+      year: card.releaseYear ? String(card.releaseYear) : undefined,
+    });
+    if (generated) return { url: generated, source: "generated" };
+
+    logger.warn(
+      "Falling back from generated card art — the provider refused or failed",
+      { cardName: card.name },
     );
   }
-  return url;
+
+  if (mode !== "scan" && card.officialImageUrl) {
+    return { url: card.officialImageUrl, source: "catalogue" };
+  }
+
+  const scan = await scannedFrontUrl(analysisId);
+  if (scan) return { url: scan, source: "scan" };
+
+  // Last resort: a back-only PixelScope upload has no front photo.
+  if (card.officialImageUrl) {
+    return { url: card.officialImageUrl, source: "catalogue" };
+  }
+
+  throw new AppError(
+    httpStatus.BAD_REQUEST,
+    "No card image is available for this report.",
+  );
 };
 
 /** Loads the report plus the joined data the label needs. */
@@ -159,84 +255,192 @@ const createLabel = async (
 /**
  * Renders (or re-renders) a label's artwork and exports.
  *
- * Split out from `createLabel` so regenerate and export reuse the exact same
- * pipeline — there is only one place where pixels are produced.
+ * Generates the four EXT. ART options when the label has none, composites
+ * EVERY option, and selects one. Compositing all four up front is what makes
+ * switching between them instant: the client requires the preview to be the
+ * real export ("the preview should always match the final exported design"),
+ * and re-compositing on each click would put a two-second wait behind a
+ * control the user is meant to flick through.
+ *
+ * Only the ARTWORK is generated. The card and the label are drawn by us, at
+ * fixed coordinates, so a bad generation can never shift the card window or
+ * corrupt the label.
  */
 const renderLabel = async (userId: string, labelId: string) => {
   const label = await SlabLabel.findOne({ _id: labelId, user: userId });
   if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
 
   const { report, card } = await loadContext(userId, String(label.report));
-
   const layout = computeLayout(label as ISlabLabel);
 
-  // Only the background is generated. Everything else is drawn by us.
+  // Artwork and card image are independent, so they run TOGETHER. Under
+  // `generated` mode this is the difference between five image generations in
+  // series and two waves — roughly a minute of wall time on a request that is
+  // already uncomfortably long.
   //
-  // The card's own palette/setting is passed as art direction so the backdrop
-  // reads as an extension of the card rather than a generic swatch (client
-  // feedback 2026-07-29). It steers colour and mood only — the provider still
-  // refuses to render creatures, text, or anything resembling the card art
-  // itself, which would be a derivative of the publisher's copyrighted work.
-  const backgroundUrl =
-    label.backgroundUrl ??
-    (await ImageGenProvider.generateBackground(
-      label.styleId,
-      layout.canvasWidth,
-      layout.canvasHeight,
-      { cardName: card.name, setExpansion: card.setExpansion },
-    ));
+  // The confirmed card drives the art direction: the provider renders the
+  // ENVIRONMENT that card evokes, never the creature or the card art itself,
+  // which is the publisher's copyrighted work (see imagegen.provider.ts).
+  const needsArtwork = label.variants.length === 0;
 
-  const cardImageUrl = await resolveCardImageUrl(
-    report.analysis,
-    card.officialImageUrl,
-  );
+  const [artworkUrls, resolvedCard] = await Promise.all([
+    needsArtwork
+      ? ImageGenProvider.generateExtArtSet({
+          cardName: card.name,
+          setExpansion: card.setExpansion,
+        })
+      : Promise.resolve(null),
+    // Resolved once and frozen on the label. Under `generated` mode this is a
+    // billed image, so re-deriving it on every background regeneration would
+    // both cost money and quietly change the card the slab depicts.
+    label.cardImageUrl
+      ? Promise.resolve(null)
+      : resolveCardImage(configs.SLAB.card_render_mode, report.analysis, card),
+  ]);
 
-  const [backgroundBuffer, cardBuffer, qrDataUri] = await Promise.all([
-    fetchBuffer(backgroundUrl),
-    fetchBuffer(cardImageUrl),
+  if (artworkUrls) {
+    label.variants = artworkUrls.map((artworkUrl, i) => ({
+      index: i + 1,
+      artworkUrl,
+    }));
+    label.selectedVariant = 1;
+  }
+
+  if (resolvedCard) {
+    label.cardImageUrl = resolvedCard.url;
+    label.cardImageSource = resolvedCard.source;
+  }
+
+  // resolveCardImage either returns a URL or throws, so by here this is set —
+  // the guard is for the type checker and for anyone who reorders the above.
+  if (!label.cardImageUrl) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "No card image is available for this report.",
+    );
+  }
+
+  const [cardBuffer, qrDataUri] = await Promise.all([
+    fetchBuffer(label.cardImageUrl, "card image"),
     buildQrDataUri(String(report._id)),
   ]);
 
-  const png = await compositePng(
-    layout,
-    backgroundBuffer,
-    cardBuffer,
-    buildLabelText(report, card, qrDataUri),
-  );
-  const pdf = await buildPdf(png, label.widthMm + label.bleedMm * 2, label.heightMm + label.bleedMm * 2);
+  const text = buildLabelText(report, card, qrDataUri);
 
-  const [pngUpload, pdfUpload] = await Promise.all([
-    uploadBufferToCloudinary(png, `slab-${labelId}-v${label.version}`),
-    uploadBufferToCloudinary(pdf, `slab-${labelId}-v${label.version}-pdf`),
-  ]);
+  // Sequential on purpose. Each composite is a full-canvas sharp pipeline plus
+  // a Cloudinary upload; running four at once on a shared box spikes memory
+  // hard enough to matter, and the user is already waiting on generation.
+  for (const variant of label.variants) {
+    if (variant.compositeUrl) continue;
 
-  label.backgroundUrl = backgroundUrl;
-  label.compositeUrl = pngUpload?.secure_url;
-  label.exportPngUrl = pngUpload?.secure_url;
-  label.exportPdfUrl = pdfUpload?.secure_url;
+    const backgroundBuffer = await fetchBuffer(
+      variant.artworkUrl,
+      `EXT. ART ${variant.index} artwork`,
+    );
+    const png = await compositePng(layout, backgroundBuffer, cardBuffer, text);
+    const upload = await uploadBufferToCloudinary(
+      png,
+      `slab-${labelId}-v${label.version}-ext${variant.index}`,
+    );
+    variant.compositeUrl = upload?.secure_url;
+  }
+
+  label.markModified("variants");
+
+  return applySelection(label, label.selectedVariant ?? 1);
+};
+
+/**
+ * Points the label's exported assets at one variant.
+ *
+ * The PNG is already rendered for every variant, so this only has to build the
+ * PDF — which is why selection is fast enough to sit behind a click. Splitting
+ * it out also means selection and generation cannot drift: there is exactly one
+ * place that decides what "the export" is.
+ */
+const applySelection = async (
+  label: ISlabLabel,
+  variantIndex: number,
+) => {
+  // Legacy labels (pre-2026-07-30) carry no variants and keep the single
+  // background they were sold with.
+  if (label.variants.length === 0) {
+    await label.save();
+    return label;
+  }
+
+  const variant =
+    label.variants.find((v) => v.index === variantIndex) ?? label.variants[0];
+
+  label.selectedVariant = variant.index;
+  label.backgroundUrl = variant.artworkUrl;
+  label.compositeUrl = variant.compositeUrl;
+  label.exportPngUrl = variant.compositeUrl;
+
+  if (variant.compositeUrl) {
+    const png = await fetchBuffer(
+      variant.compositeUrl,
+      `EXT. ART ${variant.index} composite`,
+    );
+    const pdf = await buildPdf(
+      png,
+      label.widthMm + label.bleedMm * 2,
+      label.heightMm + label.bleedMm * 2,
+    );
+    const pdfUpload = await uploadBufferToCloudinary(
+      pdf,
+      `slab-${String(label._id)}-v${label.version}-ext${variant.index}-pdf`,
+    );
+    label.exportPdfUrl = pdfUpload?.secure_url;
+  }
+
   await label.save();
-
   return label;
 };
 
 /**
- * Replaces the background with fresh artwork and re-composites.
+ * Switches the label to a different EXT. ART option.
  *
- * Bumps `version` and keeps the previous export URLs in history rather than
- * overwriting silently — labels are retained permanently and must stay
- * regenerable from the collection.
+ * Costs nothing at the image provider — the artwork already exists. This is
+ * the path the UI's thumbnail grid uses.
  */
-const regenerateBackground = async (
+const selectVariant = async (
   userId: string,
   labelId: string,
-  styleId?: SlabStyle,
+  variantIndex: number,
 ) => {
   const label = await SlabLabel.findOne({ _id: labelId, user: userId });
   if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
 
-  if (styleId) label.styleId = styleId;
-  // Clearing this forces the provider to be called again on the next render.
+  const exists = label.variants.some((v) => v.index === variantIndex);
+  if (!exists) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      `This label has no EXT. ART ${variantIndex}.`,
+    );
+  }
+
+  return applySelection(label, variantIndex);
+};
+
+/**
+ * Throws away the current options and generates four completely new ones.
+ *
+ * ⚠️ Four billed images every time it is called, and nothing rate-limits it —
+ * see docs/OPEN-QUESTIONS.md, the client has not set a cap.
+ *
+ * `version` increments so the new composites upload under fresh public ids
+ * rather than overwriting the previous batch: labels are retained permanently
+ * and a label already ordered must keep resolving to the art it was sold with.
+ */
+const regenerateBackground = async (userId: string, labelId: string) => {
+  const label = await SlabLabel.findOne({ _id: labelId, user: userId });
+  if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
+
+  label.variants = [];
+  label.selectedVariant = undefined;
   label.backgroundUrl = undefined;
+  label.compositeUrl = undefined;
   label.version += 1;
   await label.save();
 
@@ -257,9 +461,18 @@ const previewWithGuides = async (userId: string, labelId: string) => {
   const { report, card } = await loadContext(userId, String(label.report));
   const layout = computeLayout(label as ISlabLabel);
 
+  // Reuses whatever the label already froze. The guide overlay is a checking
+  // tool, so it must show the same card image the export does — and under
+  // `generated` mode re-resolving here would buy a second billed image that
+  // then differs from the one on the actual slab.
+  const cardImageUrl =
+    label.cardImageUrl ??
+    (await resolveCardImage(configs.SLAB.card_render_mode, report.analysis, card))
+      .url;
+
   const [backgroundBuffer, cardBuffer] = await Promise.all([
-    fetchBuffer(label.backgroundUrl),
-    fetchBuffer(await resolveCardImageUrl(report.analysis, card.officialImageUrl)),
+    fetchBuffer(label.backgroundUrl, "background artwork"),
+    fetchBuffer(cardImageUrl, "card image"),
   ]);
 
   return compositePng(
@@ -294,6 +507,7 @@ const getLabel = async (userId: string, labelId: string) => {
 export const SlabServices = {
   createLabel,
   renderLabel,
+  selectVariant,
   regenerateBackground,
   previewWithGuides,
   getMyLabels,

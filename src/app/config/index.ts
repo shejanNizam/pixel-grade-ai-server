@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SLAB_CARD_RENDER_MODES } from "../constants";
 
 const envSchema = z.object({
   PORT: z.string().default("5000"),
@@ -83,6 +84,10 @@ const envSchema = z.object({
   // Slab background generation — vendor unconfirmed.
   IMAGEGEN_API_KEY: z.string().optional(),
   IMAGEGEN_BASE_URL: z.string().optional(),
+
+  /** What fills the slab's card window. Defaults to `scan` — the card that was
+   *  actually graded. See SLAB_CARD_RENDER_MODES for what the others cost you. */
+  SLAB_CARD_RENDER_MODE: z.enum(SLAB_CARD_RENDER_MODES).default("scan"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -180,6 +185,10 @@ export const configs = {
   IMAGEGEN: {
     api_key: env.IMAGEGEN_API_KEY,
     base_url: env.IMAGEGEN_BASE_URL,
+  },
+
+  SLAB: {
+    card_render_mode: env.SLAB_CARD_RENDER_MODE,
   },
 
   STRIPE: {

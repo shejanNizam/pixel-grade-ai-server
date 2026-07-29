@@ -4,6 +4,7 @@ import { uploadBufferToCloudinary } from "../config/cloudinary.config";
 import { configs } from "../config/index";
 import { SlabStyle } from "../constants";
 import AppError from "../errorHelpers/AppError";
+import { logger } from "../utils/logger";
 
 /**
  * Slab background generation — OpenAI gpt-image-1.
@@ -26,7 +27,11 @@ import AppError from "../errorHelpers/AppError";
  * is where any spend cap belongs.
  */
 
-/** One prompt per confirmed style. Kept here so a style change is one edit. */
+/** One prompt per confirmed style. Kept here so a style change is one edit.
+ *
+ *  ⚠️ LEGACY. Fixed themes were replaced on 2026-07-30 by four card-derived
+ *  variants (see EXT_ART_TREATMENTS). Retained only so labels created before
+ *  that date still re-render with the artwork they were sold with. */
 export const STYLE_PROMPTS: Record<SlabStyle, string> = {
   cosmic:
     "Deep space nebula, violet and indigo, scattered starfield, soft volumetric glow, no text, no characters, no borders",
@@ -38,13 +43,32 @@ export const STYLE_PROMPTS: Record<SlabStyle, string> = {
     "Aged parchment texture, warm sepia, subtle paper grain and foxing, muted gold accents, no text, no characters, no borders",
 };
 
+/**
+ * The four EXT. ART treatments.
+ *
+ * Every option is derived from the SAME card, so something has to make them
+ * meaningfully different or the user is picking between four near-identical
+ * images — the choice the client asked for would be no choice at all. These
+ * vary the framing and light rather than the subject, so all four still read as
+ * that card's world.
+ */
+export const EXT_ART_TREATMENTS = [
+  "Wide establishing view of the environment, deep depth, distant horizon, balanced daylight.",
+  "Close, intimate detail of the same environment, shallow depth, soft focus falloff, rich texture.",
+  "Dramatic low light, strong directional shafts, deep shadow, high contrast.",
+  "Soft diffuse ambience, gentle haze, muted pastel wash, low contrast.",
+] as const;
+
+/** How many options a generation batch produces. */
+export const EXT_ART_COUNT = EXT_ART_TREATMENTS.length;
+
 /** Prefixed onto every style prompt. The model occasionally invents lettering
  *  or figures; stating the constraints once, up front, is the strongest lever
  *  we have against artwork that would clash with the composited label. */
 const PROMPT_PREAMBLE =
-  "Abstract full-bleed background artwork for a collectible card display case. " +
-  "Purely decorative: absolutely no text, no letters, no numbers, no logos, " +
-  "no people, no creatures, no recognisable objects. Edge-to-edge, portrait. ";
+  "Full-bleed background artwork for a collectible card display case. " +
+  "Purely a setting: absolutely no text, no letters, no numbers, no logos, " +
+  "no people, no creatures, no characters. Edge-to-edge, portrait. ";
 
 /** What the slab pipeline knows about the card being framed. */
 export interface CardArtContext {
@@ -71,9 +95,10 @@ const buildArtDirection = (context?: CardArtContext): string => {
   if (!subject) return "";
 
   return (
-    `. Tune the colour palette and atmosphere so it complements a trading card ` +
-    `themed around "${subject}". Take ONLY colour and mood from that theme — ` +
-    `still no creatures, characters, text, or card imagery of any kind.`
+    `. Render the natural ENVIRONMENT a creature named "${subject}" would ` +
+    `inhabit — its habitat, palette, and atmosphere — as an empty landscape. ` +
+    `The environment only: the creature itself must NOT appear, and neither ` +
+    `must any character, text, or trading-card imagery.`
   );
 };
 
@@ -85,6 +110,9 @@ const OUTPUT_SIZE = "1024x1536" as const;
 /** "medium" is visually ample for a backdrop that sits behind a card and a
  *  label; "high" roughly quadruples the cost for detail nobody will see. */
 const QUALITY = "medium" as const;
+
+/** Ceiling for one image request, including the SDK's own retries. */
+const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 
 let client: OpenAI | null = null;
 
@@ -104,17 +132,64 @@ const getClient = (): OpenAI => {
   client ??= new OpenAI({
     apiKey: apiKey(),
     ...(configs.IMAGEGEN.base_url ? { baseURL: configs.IMAGEGEN.base_url } : {}),
+    // Explicit, because the defaults are wrong for this workload. A medium
+    // gpt-image-1 render routinely takes 30-90s, and four requested at once
+    // queue behind each other — long enough that an unbounded wait turns a
+    // slow generation into a dead socket rather than an error we can report.
+    timeout: IMAGE_REQUEST_TIMEOUT_MS,
+    maxRetries: 2,
   });
   return client;
 };
 
 /**
- * Generates one background and returns a permanent URL.
+ * Runs one prompt and returns a permanent URL.
  *
  * gpt-image-1 returns base64 rather than a hosted URL, and OpenAI's hosted
  * image URLs expire anyway — so the image is pushed straight to Cloudinary,
  * which is already the platform's permanent image store. The slab pipeline
  * then fetches it back by URL exactly as it would from any other vendor.
+ */
+const renderPrompt = async (
+  prompt: string,
+  publicIdPrefix: string,
+  size: "1024x1536" = OUTPUT_SIZE,
+): Promise<string> => {
+  const response = await getClient().images.generate({
+    model: MODEL,
+    prompt,
+    size,
+    quality: QUALITY,
+    n: 1,
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) {
+    throw new AppError(
+      httpStatus.BAD_GATEWAY,
+      "Image generation returned no image data.",
+    );
+  }
+
+  const upload = await uploadBufferToCloudinary(
+    Buffer.from(b64, "base64"),
+    `${publicIdPrefix}-${Date.now()}`,
+  );
+  if (!upload?.secure_url) {
+    throw new AppError(
+      httpStatus.BAD_GATEWAY,
+      "Generated background could not be stored.",
+    );
+  }
+
+  return upload.secure_url;
+};
+
+/**
+ * LEGACY single-background generation from a fixed theme.
+ *
+ * Superseded by `generateExtArtSet`. Kept so a label created before
+ * 2026-07-30 can still be re-rendered with the artwork it was sold with.
  */
 const generateBackground = async (
   style: SlabStyle,
@@ -131,38 +206,132 @@ const generateBackground = async (
   void widthPx;
   void heightPx;
 
-  const response = await getClient().images.generate({
-    model: MODEL,
-    prompt: PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext),
-    size: OUTPUT_SIZE,
-    quality: QUALITY,
-    n: 1,
-  });
-
-  const b64 = response.data?.[0]?.b64_json;
-  if (!b64) {
-    throw new AppError(
-      httpStatus.BAD_GATEWAY,
-      "Image generation returned no image data.",
-    );
-  }
-
-  const upload = await uploadBufferToCloudinary(
-    Buffer.from(b64, "base64"),
+  return renderPrompt(
+    PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext),
     `slab-bg-${style}`,
   );
-  if (!upload?.secure_url) {
+};
+
+/**
+ * Generates the four EXT. ART options for one card.
+ *
+ * ⚠️ COST: this is FOUR billed images per call, roughly $0.08–$1.00 depending
+ * on quality — and "Regenerate artwork" spends it again. It is deliberately
+ * NOT called at scan time (see slab.service.ts): a scan that never becomes a
+ * slab order would otherwise burn four images for nothing.
+ *
+ * The four run concurrently — sequentially this is four round-trips and the
+ * user is staring at a spinner for all of them.
+ *
+ * A partial failure is tolerated: three good options is a usable choice, and
+ * failing the whole batch because one image tripped a content filter would
+ * strand the user with nothing. Only an empty result is an error.
+ */
+const generateExtArtSet = async (
+  cardContext?: CardArtContext,
+): Promise<string[]> => {
+  const direction = buildArtDirection(cardContext);
+
+  const settled = await Promise.allSettled(
+    EXT_ART_TREATMENTS.map((treatment, index) =>
+      renderPrompt(
+        `${PROMPT_PREAMBLE}${treatment}${direction}`,
+        `slab-extart-${index + 1}`,
+      ),
+    ),
+  );
+
+  const urls = settled.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+
+  settled.forEach((result, index) => {
+    if (result.status === "rejected") {
+      logger.error("EXT. ART option failed to generate", {
+        option: index + 1,
+        error: result.reason,
+      });
+    }
+  });
+
+  if (urls.length === 0) {
     throw new AppError(
       httpStatus.BAD_GATEWAY,
-      "Generated background could not be stored.",
+      "Could not generate any background artwork. Please try again.",
     );
   }
 
-  return upload.secure_url;
+  return urls;
+};
+
+/** What the card generator knows about the card it is asked to draw. */
+export interface GeneratedCardContext {
+  cardName: string;
+  setExpansion?: string;
+  cardNumber?: string;
+  rarity?: string;
+  year?: string;
+}
+
+/**
+ * Renders the card itself, rather than using a photograph of it.
+ *
+ * DIRECTED BY THE CLIENT, 2026-07-30, over a documented objection. Two things
+ * about it are worth knowing before reading the prompt below:
+ *
+ * 1. IT OFTEN WILL NOT RUN. Naming a specific trading card trips OpenAI's
+ *    content filters, and the request comes back refused. That is why this
+ *    returns `null` on failure instead of throwing — the caller falls back to
+ *    a real image and the slab still renders.
+ *
+ * 2. WHAT IT PRODUCES IS NOT THE CARD. Image models cannot render legible
+ *    small text, so the HP, attack names, damage numbers, set symbol, and
+ *    copyright line come out as garbled shapes. The result reads as a
+ *    convincing-at-a-glance, wrong-on-inspection imitation.
+ *
+ * Because of (2) the prompt deliberately asks for NO text anywhere rather than
+ * letting the model attempt lettering and fail: an illustration with clean
+ * empty panels looks intentional, whereas one covered in scrambled glyphs
+ * looks broken. The composited PixelGrade label carries the real card details.
+ */
+const generateCardImage = async (
+  context: GeneratedCardContext,
+): Promise<string | null> => {
+  const descriptors = [
+    context.year,
+    context.setExpansion,
+    context.rarity ? `${context.rarity} rarity` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const prompt =
+    `Original illustrated collectible card artwork in a portrait frame, ` +
+    `depicting a creature named "${context.cardName}"` +
+    (descriptors ? ` in the visual style of ${descriptors}` : "") +
+    `. Painted illustration inside a decorative border, holographic sheen, ` +
+    `clean studio lighting, straight-on view, sharp focus, no glare. ` +
+    `ABSOLUTELY NO TEXT, no letters, no numbers, no logos, no symbols, and no ` +
+    `watermarks anywhere in the image — leave those areas as plain empty panels.`;
+
+  try {
+    return await renderPrompt(prompt, `slab-card-${Date.now()}`);
+  } catch (error) {
+    // Never fatal. A refused or failed generation must not cost the user the
+    // slab they already paid credits to grade.
+    logger.error("Card image generation failed — falling back to a real image", {
+      cardName: context.cardName,
+      error,
+    });
+    return null;
+  }
 };
 
 export const ImageGenProvider = {
   generateBackground,
+  generateExtArtSet,
+  generateCardImage,
+  EXT_ART_COUNT,
   isConfigured,
   STYLE_PROMPTS,
 };

@@ -1,5 +1,9 @@
 import { model, Schema } from "mongoose";
-import { SLAB_DEFAULTS, SLAB_STYLES } from "../../constants";
+import {
+  SLAB_CARD_RENDER_MODES,
+  SLAB_DEFAULTS,
+  SLAB_STYLES,
+} from "../../constants";
 import { ISlabLabel, ISlabOrder, SlabOrderStatus } from "./slab.interface";
 
 export const slabLabelSchema = new Schema<ISlabLabel>(
@@ -15,6 +19,25 @@ export const slabLabelSchema = new Schema<ISlabLabel>(
       enum: SLAB_STYLES,
       default: SLAB_STYLES[0],
     },
+    // The four EXT. ART options. Empty on labels created before 2026-07-30 —
+    // those still render from `backgroundUrl` alone.
+    variants: {
+      type: [
+        new Schema(
+          {
+            index: { type: Number, required: true, min: 1 },
+            artworkUrl: { type: String, required: true },
+            compositeUrl: { type: String },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+    selectedVariant: { type: Number, min: 1 },
+    // Frozen once resolved — see ISlabLabelInitial.cardImageUrl.
+    cardImageUrl: { type: String },
+    cardImageSource: { type: String, enum: SLAB_CARD_RENDER_MODES },
     backgroundUrl: { type: String },
     compositeUrl: { type: String },
     exportPngUrl: { type: String },
