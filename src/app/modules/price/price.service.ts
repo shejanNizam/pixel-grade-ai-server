@@ -219,11 +219,19 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
  * each group, oldest-priced first so an unfinished run still makes progress on
  * the stalest data.
  *
- * Held-first is a Scrydex budget decision, not a performance one: on the
- * Starter tier (5,000 credits/month, decided 2026-07-19) every quote costs a
- * credit from the same pool that pays for scans, so the cards users actually
- * see on their dashboards must be refreshed before catalogue strays that
- * nobody holds.
+ * Held-first is a Scrydex budget decision, not a performance one: on the Growth
+ * tier (50,000 credits/month, decided 2026-07-30) every quote costs a credit
+ * from the same pool that pays for scans, so the cards users actually see on
+ * their dashboards must be refreshed before catalogue strays that nobody holds.
+ * The upgrade from Starter widened the budget; it did not remove the
+ * competition between pricing and scans.
+ *
+ * `limit` is a ceiling and there is no staleness floor — every call re-quotes
+ * the stalest cards whether or not they were quoted an hour ago. That is fine
+ * for one scheduled pass a day, but it means calling this more often multiplies
+ * the spend on a catalogue smaller than the limit without buying any new data.
+ * Anything that wants a finer cadence should skip cards priced within the last
+ * N hours first.
  *
  * Failures are per-card and swallowed: one dead card must not abort the sweep.
  */

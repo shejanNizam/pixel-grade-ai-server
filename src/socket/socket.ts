@@ -1,11 +1,15 @@
-/* eslint-disable no-console */
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Server as HTTPServer } from "http";
 import { JwtPayload } from "jsonwebtoken";
 import { createClient } from "redis";
 import { Server, Socket } from "socket.io";
 import { configs } from "../app/config";
+import {
+  attachRedisLogging,
+  redisConnectionOptions,
+} from "../app/config/redis.config";
 import { verifyToken } from "../app/utils/jwt";
+import { logger } from "../app/utils/logger";
 
 interface AuthSocket extends Socket {
   user: JwtPayload;
@@ -22,22 +26,15 @@ export const initSocket = async (httpServer: HTTPServer): Promise<Server> => {
   });
 
   // Redis adapter — allows horizontal scaling across multiple server instances
-  const pubClient = createClient({
-    username: configs.REDIS.redis_username ?? "default",
-    password: configs.REDIS.redis_password ?? "",
-    socket: {
-      host: configs.REDIS.redis_host ?? "localhost",
-      port: parseInt(configs.REDIS.redis_port ?? "6379"),
-    },
-  });
+  const pubClient = createClient(redisConnectionOptions);
   const subClient = pubClient.duplicate();
 
-  pubClient.on("error", (err) => console.log("Socket Redis pub error:", err));
-  subClient.on("error", (err) => console.log("Socket Redis sub error:", err));
+  attachRedisLogging(pubClient, "Socket Redis pub");
+  attachRedisLogging(subClient, "Socket Redis sub");
 
   await Promise.all([pubClient.connect(), subClient.connect()]);
   io.adapter(createAdapter(pubClient, subClient));
-  console.log("Socket.io Redis adapter connected.");
+  logger.info("Socket.io Redis adapter connected.");
 
   // JWT authentication middleware — runs before every connection
   io.use((socket: Socket, next) => {

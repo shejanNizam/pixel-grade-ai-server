@@ -1,17 +1,79 @@
-﻿import { createClient } from "redis";
+import { createClient } from "redis";
 import { configs } from "./index";
 import { logger } from "../utils/logger";
 
-export const redisClient = createClient({
+/**
+ * Only the event surface, deliberately. node-redis parameterises its client type
+ * over modules, functions, scripts and RESP version, and the concrete type of a
+ * `createClient(...)` call does not unify with the abstract `RedisClientType` —
+ * so naming that type here would make this helper reject the very clients it is
+ * written for. It needs `.on` and nothing else.
+ */
+interface RedisLifecycleEvents {
+  on(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+  on(event: "reconnecting" | "ready", listener: () => void): unknown;
+}
+
+/**
+ * One place the Redis endpoint is described. The Socket.io adapter opens its own
+ * pub/sub pair off the same options — three connections to one server, so they
+ * must not be able to drift apart.
+ */
+export const redisConnectionOptions = {
   username: configs.REDIS.redis_username ?? "default",
   password: configs.REDIS.redis_password ?? "",
   socket: {
     host: configs.REDIS.redis_host ?? "localhost",
     port: parseInt(configs.REDIS.redis_port ?? "6379"),
   },
-});
+};
 
-redisClient.on("error", (err) => logger.error("Redis Client Error", { err }));
+/**
+ * Connection lifecycle logging, shared by every client.
+ *
+ * Redis connections drop and come back on their own: a hosted provider culls
+ * sockets that have been idle, and a suspended machine wakes to find all of them
+ * reset (`ECONNRESET` on read). node-redis reconnects without help, so the gap
+ * was never reliability — it was that recovery left no trace. The failure was
+ * logged and the repair was not, which made a blip that healed in a second look
+ * exactly like a Redis that never came back.
+ *
+ * Repeats of an identical error are swallowed until the client is `ready` again,
+ * so a long outage costs one line per distinct fault instead of one per retry.
+ */
+export const attachRedisLogging = (
+  client: RedisLifecycleEvents,
+  label: string,
+): void => {
+  let hasConnected = false;
+  let lastErrorCode: string | undefined;
+
+  client.on("error", (error: NodeJS.ErrnoException) => {
+    const code = error?.code ?? error?.name ?? "unknown";
+    if (code === lastErrorCode) return;
+    lastErrorCode = code;
+
+    logger.error(`${label} error`, {
+      code,
+      syscall: error?.syscall,
+      message: error?.message,
+    });
+  });
+
+  client.on("reconnecting", () => logger.warn(`${label} reconnecting`));
+
+  // `ready` also fires on the very first connect, which connectRedis already
+  // reports — only the later ones are news.
+  client.on("ready", () => {
+    if (hasConnected) logger.info(`${label} reconnected`);
+    hasConnected = true;
+    lastErrorCode = undefined;
+  });
+};
+
+export const redisClient = createClient(redisConnectionOptions);
+
+attachRedisLogging(redisClient, "Redis client");
 
 export const connectRedis = async () => {
   if (!redisClient.isOpen) {

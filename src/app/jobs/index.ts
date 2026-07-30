@@ -16,28 +16,53 @@ import { logger } from "../utils/logger";
 /**
  * Scheduled jobs.
  *
- * ⚠️ SINGLE-INSTANCE ASSUMPTION. node-cron fires in every process that runs it,
- * so on a multi-instance deploy each replica would grant credits independently
- * and users would receive N× their allowance. Before scaling past one instance,
- * either gate these behind a Redis lock or move them to an external scheduler.
- * `grantAllowance` is a reset rather than an increment, which limits the damage,
- * but the ledger would still show duplicate grant rows.
+ * node-cron fires in every process that runs it, so on a multi-instance deploy
+ * each replica would otherwise grant credits independently and users would
+ * receive N× their allowance. Every job below is therefore wrapped in
+ * `withCronLock`, a Redis lease: the first replica to claim the name runs the
+ * pass and the rest return immediately. Add the lock in the same change as any
+ * new job — the lease is the only thing standing between a second replica and
+ * duplicate grant rows in the ledger.
+ *
+ * ⚠️ These schedules are wall-clock deadlines, not timers that catch up. A
+ * process that is suspended (a sleeping dev machine, a paused container) wakes
+ * to find the slots it missed already past, and node-cron reports them as
+ * "missed execution ... possible blocking IO or high CPU" — a guess that is
+ * usually wrong. Several warnings sharing one millisecond mean the clock jumped,
+ * not that the event loop stalled. Nothing here needs to be caught up by hand:
+ * the sweep is an age query and the grants are claim-based, so the next pass
+ * settles whatever the missed one would have.
  */
 
 /**
  * Daily price refresh at 00:30, held/tracked cards first.
  *
- * Daily cadence and the batch size are Scrydex Starter-tier budget decisions
- * (client, 2026-07-19). Quotes cost 1 Scrydex credit each, drawn from the same
- * 5,000/month pool that funds identification at 5 credits per scan:
- * 100 cards/day × 30 = 3,000 credits, leaving ~2,000 ≈ 400 scans/month.
- * This constant is the entire throttle — raising it directly eats scan
- * capacity, so shrink it or upgrade the Scrydex tier before touching it.
+ * Daily cadence and the batch size are Scrydex budget decisions. Quotes cost 1
+ * Scrydex credit each, drawn from the same monthly pool that funds
+ * identification at 5 credits per scan, so this constant and scan capacity are
+ * in direct competition.
  *
- * The requirements' "hourly recommended" cadence needs the Growth tier; to
- * restore it later, change the cron expression back to "0 * * * *".
+ * Growth tier (client, 2026-07-30) — 50,000 credits/month:
+ *   1,000 cards/day × 30 = 30,000 credits, leaving ~20,000 ≈ 4,000 scans/month.
+ * That is the same 60/40 pricing-to-scans split the client accepted on Starter
+ * (which was 100/day = 3,000, leaving ~400 scans), scaled to the larger pool.
+ *
+ * The limit is a CEILING, not a fixed spend: `refreshStalest` quotes at most
+ * this many cards and simply runs out when the catalogue is smaller, so a
+ * generous value costs nothing until there is a catalogue big enough to use it.
+ *
+ * ⚠️ Do NOT restore the requirements' "hourly recommended" cadence on Growth,
+ * despite what the earlier note here said. Hourly is 720 credits per card per
+ * month, so the whole 50,000 pool buys hourly quotes for ~69 cards and leaves
+ * nothing for scans. Hourly needs Professional at minimum, and a catalogue in
+ * the hundreds makes it expensive even there.
+ *
+ * Raising the FREQUENCY is not a free way to get fresher prices either:
+ * `refreshStalest` has no staleness floor, so a second daily pass re-quotes the
+ * same cards and simply doubles the spend on any catalogue smaller than the
+ * batch. Add a floor there before adding a pass here.
  */
-const DAILY_PRICE_BATCH = 100;
+const DAILY_PRICE_BATCH = 1000;
 
 const startPriceRefresh = () =>
   cron.schedule("30 0 * * *", () =>
