@@ -38,6 +38,40 @@ const assertUsernameAvailable = async (
   }
 };
 
+/**
+ * Derives a free username from a seed (an email local-part or display name).
+ *
+ * The client requires every account to have a unique handle (UI Feedback v1,
+ * edit #2), but Google sign-in has no form to ask for one — passport creates
+ * the account straight from the Google profile. Rather than leave OAuth
+ * accounts as the one cohort with no Creator Profile handle, one is derived
+ * here and the user can change it later in Settings.
+ *
+ * Matches `usernameSchema` in user.validation.ts: lower-case, [a-z0-9_], 3–24.
+ * A seed that cleans up too short is padded, because "Ng" and "李" are real
+ * display names and neither should fail account creation.
+ */
+const generateUniqueUsername = async (seed: string): Promise<string> => {
+  const base =
+    seed
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, 20) || "collector";
+  const stem = base.length >= 3 ? base : `${base}user`;
+
+  // The suffix loop is bounded: an unbounded retry on a hot username would spin
+  // for as long as the collisions last, inside account creation.
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const candidate = attempt === 0 ? stem : `${stem}${attempt + 1}`;
+    if (!(await User.findOne({ username: candidate }).select("_id"))) {
+      return candidate;
+    }
+  }
+
+  // Fall back to something collision-proof rather than failing the sign-in.
+  return `${stem.slice(0, 14)}${Date.now().toString(36).slice(-6)}`;
+};
+
 const createUser = async (payload: Partial<IUser>) => {
   const { email, password, ...rest } = payload;
 
@@ -222,4 +256,5 @@ export const UserServices = {
   getMe,
   deleteUser,
   deleteMe,
+  generateUniqueUsername,
 };

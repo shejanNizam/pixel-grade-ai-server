@@ -258,7 +258,7 @@ composited server-side.
 |---|---|---|---|
 | GET | `/collection` | Any | Filters: `searchTerm`, `set`, `rarity`, `minGrade`, `maxGrade`, `minPrice`, `maxPrice`, `favorite`, `sortBy` (`addedAt`\|`price`\|`grade`\|`name`), `sortOrder`, `page`, `limit` |
 | POST | `/collection` | Any | Either `{ report }` (scanned) or `{ card }` (manual), plus `quantity?`, `favorite?`, `externalGrade?`, `manualImageUrl?`. `currentPrice` is not accepted — price is system-owned |
-| GET | `/collection/summary` | Any | `totalValue`, `totalCards`, `entryCount`, `averageGrade` |
+| GET | `/collection/summary` | Any | `totalValue`, `totalCards`, `entryCount`, `averageGrade`, `pixelVerifiedCount`, `averageConfidence` |
 | GET | `/collection/value-over-time` | Any | `?months=` (1–36, default 12). One point per calendar month, oldest-first, as `{ month: "2026-07", value }` |
 | GET | `/collection/by-set` | Any | Count and value per set |
 | GET | `/collection/:id` | Any | |
@@ -266,7 +266,15 @@ composited server-side.
 | DELETE | `/collection/:id` | Any | Removes the entry only. The report and its images are retained permanently |
 
 `averageGrade` covers graded entries only — manual entries are excluded rather
-than counted as zero — and is `null` when nothing is graded.
+than counted as zero — and is `null` when nothing is graded. `averageConfidence`
+is `null` on the same basis.
+
+**`pixelVerifiedCount` and `averageConfidence` are collection-scoped**, added
+2026-07-30 (UI Feedback v1, edit #3) so the Creator Profile stops counting
+grading reports for figures printed beside its collection totals. Grading a card
+does not put it in a collection; adding it does. `pixelVerifiedCount` filters on
+the report's `pixelVerified` flag — never on "has a report" — and counts entries
+rather than quantity, so four copies of one verified card is one verified card.
 
 **`value-over-time` makes two documented approximations**, because the exact
 answer is not recoverable from the data:

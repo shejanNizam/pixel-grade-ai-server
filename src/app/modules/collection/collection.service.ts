@@ -109,11 +109,24 @@ const getMyCollection = async (
 };
 
 /**
- * Dashboard metrics. Quantity-weighted: two copies of a $50 card are $100 of
- * collection value, and count as two cards.
+ * Dashboard and Creator Profile metrics. Quantity-weighted: two copies of a $50
+ * card are $100 of collection value, and count as two cards.
  *
  * The average grade covers only graded entries — averaging manual entries in as
  * zero would drag the number down and misrepresent the collection.
+ *
+ * EVERY figure here is scoped to the COLLECTION, never to grading reports
+ * (client, UI Feedback v1 edit #3). Grading a card does not put it in your
+ * collection; adding it does. The Creator Profile previously counted reports for
+ * its showcase and confidence average while taking totals from here, so a user
+ * who had graded three cards and added two saw "Total cards 2" beside three
+ * showcase tiles. `pixelVerifiedCount` and `averageConfidence` moved here for
+ * that reason — computing them from a page of reports also silently under-counts
+ * anyone with more reports than the page size.
+ *
+ * `pixelVerifiedCount` filters on the report's `pixelVerified` FLAG, never on
+ * "has a report". The badge is a specific server-side award; counting every
+ * graded entry would empty it of the meaning the award exists to protect.
  */
 const getSummary = async (userId: string) => {
   const pipeline: PipelineStage[] = [
@@ -141,6 +154,17 @@ const getSummary = async (userId: string) => {
         gradedCount: {
           $sum: { $cond: [{ $ifNull: ["$report", false] }, "$quantity", 0] },
         },
+        // Entries, not quantity: holding four copies of one Pixel Verified card
+        // is one verified card, not four.
+        pixelVerifiedCount: {
+          $sum: { $cond: [{ $eq: ["$report.pixelVerified", true] }, 1, 0] },
+        },
+        confidenceSum: { $sum: { $ifNull: ["$report.confidence", 0] } },
+        confidenceCount: {
+          $sum: {
+            $cond: [{ $ifNull: ["$report.confidence", false] }, 1, 0],
+          },
+        },
       },
     },
   ];
@@ -153,6 +177,8 @@ const getSummary = async (userId: string) => {
       totalCards: 0,
       entryCount: 0,
       averageGrade: null,
+      pixelVerifiedCount: 0,
+      averageConfidence: null,
     };
   }
 
@@ -163,6 +189,13 @@ const getSummary = async (userId: string) => {
     averageGrade:
       summary.gradedCount > 0
         ? Number((summary.gradeSum / summary.gradedCount).toFixed(2))
+        : null,
+    pixelVerifiedCount: summary.pixelVerifiedCount,
+    // Null rather than 0 when nothing is graded — "no data" and "0% confident"
+    // are different claims and the profile renders them differently.
+    averageConfidence:
+      summary.confidenceCount > 0
+        ? Math.round(summary.confidenceSum / summary.confidenceCount)
         : null,
   };
 };

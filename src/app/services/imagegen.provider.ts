@@ -70,6 +70,31 @@ const PROMPT_PREAMBLE =
   "Purely a setting: absolutely no text, no letters, no numbers, no logos, " +
   "no people, no creatures, no characters. Edge-to-edge, portrait. ";
 
+/**
+ * Where the slab's own furniture lands on this image.
+ *
+ * The generated art is not seen whole: a 65×90 mm card covers the middle of an
+ * 80×135 mm slab and the label band covers the top ~20 mm. So the model was
+ * being asked for a composition and then having most of it hidden — the detail
+ * it worked hardest on ended up under the card, and whatever busy area happened
+ * to fall at the top fought the band for attention.
+ *
+ * Client feedback 2026-07-30: the art should read as a continuation of the card
+ * rather than a separate backdrop. Half of that is palette (see
+ * buildArtDirection) and half is composition — the margins around the card are
+ * the only part anyone actually sees, so that is where the scene has to work.
+ *
+ * Stated in plain spatial language rather than millimetres: image models handle
+ * "upper fifth" far more reliably than any measurement.
+ */
+const COMPOSITION_DIRECTION =
+  " Composition: keep the upper fifth of the image calm and uncluttered — " +
+  "open sky, haze, or soft shade — with no focal detail there. Keep the " +
+  "centre simple and unbusy. Carry the richest detail and depth down the " +
+  "left and right edges and across the lower third, so the scene reads " +
+  "around a rectangular object resting in the middle. Continuous scene, even " +
+  "lighting, no vignette, no frame, no border.";
+
 /** What the slab pipeline knows about the card being framed. */
 export interface CardArtContext {
   cardName?: string;
@@ -207,7 +232,7 @@ const generateBackground = async (
   void heightPx;
 
   return renderPrompt(
-    PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext),
+    PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext) + COMPOSITION_DIRECTION,
     `slab-bg-${style}`,
   );
 };
@@ -235,7 +260,7 @@ const generateExtArtSet = async (
   const settled = await Promise.allSettled(
     EXT_ART_TREATMENTS.map((treatment, index) =>
       renderPrompt(
-        `${PROMPT_PREAMBLE}${treatment}${direction}`,
+        `${PROMPT_PREAMBLE}${treatment}${direction}${COMPOSITION_DIRECTION}`,
         `slab-extart-${index + 1}`,
       ),
     ),

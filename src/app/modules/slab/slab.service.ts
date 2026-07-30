@@ -1,6 +1,7 @@
 import httpStatus from "http-status";
 import { Types } from "mongoose";
 import QRCode from "qrcode";
+import sharp from "sharp";
 import { uploadBufferToCloudinary } from "../../config/cloudinary.config";
 import { configs } from "../../config/index";
 import {
@@ -16,6 +17,7 @@ import { AnalysisImage } from "../analysis/analysis.model";
 import { ImageSide } from "../analysis/analysis.interface";
 import { Card } from "../card/card.model";
 import { GradingReport } from "../grading/grading.model";
+import { User } from "../user/user.model";
 import { buildPdf, compositePng, LabelText } from "./slab.composite";
 import { computeLayout } from "./slab.geometry";
 import { ISlabLabel } from "./slab.interface";
@@ -205,13 +207,63 @@ const loadContext = async (userId: string, reportId: string) => {
   const card = await Card.findById(report.card);
   if (!card) throw new AppError(httpStatus.NOT_FOUND, "Card not found");
 
-  return { report, card };
+  // The band prints the owner's avatar and handle (client, UI Feedback v1
+  // edit #4). Not fatal if the user row is unreadable — the band falls back to
+  // an initial disc, and losing a slab over a missing avatar would be absurd.
+  const owner = await User.findById(userId).select("name username avatar");
+
+  return { report, card, owner };
+};
+
+/** "Alex Alfred" -> "AA"; used when the owner has no avatar image. */
+const initialsOf = (name: string): string =>
+  name
+    .split(" ")
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+/** Cap on an avatar download. Small on purpose — it is drawn at ~9 mm. */
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Fetches the owner's avatar and inlines it as a data URI.
+ *
+ * librsvg will not fetch a remote `href` out of an SVG, so the bytes have to be
+ * embedded. Never fatal: a failed avatar costs the disc image, not the slab.
+ */
+const buildAvatarDataUri = async (
+  url?: string,
+): Promise<string | undefined> => {
+  if (!url) return undefined;
+
+  try {
+    const buffer = await fetchBuffer(url, "owner avatar");
+    if (buffer.byteLength > MAX_AVATAR_BYTES) return undefined;
+
+    // Normalised through sharp rather than trusted: it fixes the MIME type,
+    // strips anything exotic, and caps the embedded size so a 4K profile photo
+    // does not get base64'd into every slab SVG.
+    const png = await sharp(buffer)
+      .resize(256, 256, { fit: "cover" })
+      .png()
+      .toBuffer();
+
+    return `data:image/png;base64,${png.toString("base64")}`;
+  } catch (error) {
+    logger.warn("Slab owner avatar could not be embedded", { url, error });
+    return undefined;
+  }
 };
 
 const buildLabelText = (
   report: Awaited<ReturnType<typeof loadContext>>["report"],
   card: Awaited<ReturnType<typeof loadContext>>["card"],
   qrDataUri?: string,
+  owner?: Awaited<ReturnType<typeof loadContext>>["owner"],
+  ownerAvatarDataUri?: string,
 ): LabelText => ({
   cardName: card.name,
   setExpansion: card.setExpansion,
@@ -224,6 +276,9 @@ const buildLabelText = (
   pixelVerified: report.pixelVerified,
   pixelId: pixelIdFor(String(report._id)),
   qrDataUri,
+  ownerUsername: owner?.username,
+  ownerAvatarDataUri,
+  ownerInitials: owner?.name ? initialsOf(owner.name) : undefined,
 });
 
 /**
@@ -270,7 +325,10 @@ const renderLabel = async (userId: string, labelId: string) => {
   const label = await SlabLabel.findOne({ _id: labelId, user: userId });
   if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
 
-  const { report, card } = await loadContext(userId, String(label.report));
+  const { report, card, owner } = await loadContext(
+    userId,
+    String(label.report),
+  );
   const layout = computeLayout(label as ISlabLabel);
 
   // Artwork and card image are independent, so they run TOGETHER. Under
@@ -320,12 +378,19 @@ const renderLabel = async (userId: string, labelId: string) => {
     );
   }
 
-  const [cardBuffer, qrDataUri] = await Promise.all([
+  const [cardBuffer, qrDataUri, ownerAvatarDataUri] = await Promise.all([
     fetchBuffer(label.cardImageUrl, "card image"),
     buildQrDataUri(String(report._id)),
+    buildAvatarDataUri(owner?.avatar?.url),
   ]);
 
-  const text = buildLabelText(report, card, qrDataUri);
+  const text = buildLabelText(
+    report,
+    card,
+    qrDataUri,
+    owner,
+    ownerAvatarDataUri,
+  );
 
   // Sequential on purpose. Each composite is a full-canvas sharp pipeline plus
   // a Cloudinary upload; running four at once on a shared box spikes memory
@@ -458,7 +523,10 @@ const previewWithGuides = async (userId: string, labelId: string) => {
     );
   }
 
-  const { report, card } = await loadContext(userId, String(label.report));
+  const { report, card, owner } = await loadContext(
+    userId,
+    String(label.report),
+  );
   const layout = computeLayout(label as ISlabLabel);
 
   // Reuses whatever the label already froze. The guide overlay is a checking
@@ -470,16 +538,19 @@ const previewWithGuides = async (userId: string, labelId: string) => {
     (await resolveCardImage(configs.SLAB.card_render_mode, report.analysis, card))
       .url;
 
-  const [backgroundBuffer, cardBuffer] = await Promise.all([
+  const [backgroundBuffer, cardBuffer, ownerAvatarDataUri] = await Promise.all([
     fetchBuffer(label.backgroundUrl, "background artwork"),
     fetchBuffer(cardImageUrl, "card image"),
+    buildAvatarDataUri(owner?.avatar?.url),
   ]);
 
   return compositePng(
     layout,
     backgroundBuffer,
     cardBuffer,
-    buildLabelText(report, card),
+    // The guide overlay measures the real band, so it needs the real identity
+    // column — a placeholder here would check a layout nobody prints.
+    buildLabelText(report, card, undefined, owner, ownerAvatarDataUri),
     { showGuides: true },
   );
 };

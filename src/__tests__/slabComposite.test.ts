@@ -1,7 +1,14 @@
-import { SLAB_DEFAULTS } from "../app/constants";
+import sharp from "sharp";
+import {
+  BAND_FROST_BRIGHTNESS,
+  BAND_SCRIM_OPACITY,
+  SLAB_DEFAULTS,
+} from "../app/constants";
 import {
   buildCaseLayer,
+  buildFrostedBand,
   buildTextLayer,
+  compositePng,
   formatGrade,
   LabelText,
 } from "../app/modules/slab/slab.composite";
@@ -40,6 +47,9 @@ const baseText: LabelText = {
   gradeLabel: "MINT",
   pixelVerified: true,
   pixelId: "PG-000087FG",
+  // The PixelGrade wordmark was replaced by the owner's identity on 2026-07-30.
+  ownerUsername: "omar_mendoza",
+  ownerInitials: "OM",
 };
 
 /**
@@ -51,7 +61,8 @@ const baseText: LabelText = {
  * clearance. Measured against the rendered output, not guessed.
  */
 const ADVANCE: Record<string, number> = {
-  mark: 0.78,
+  handle: 0.55,
+  initials: 0.6,
   name: 0.6,
   meta: 0.55,
   micro: 0.55,
@@ -134,18 +145,112 @@ describe("slab label band", () => {
     }
   });
 
-  it("does not let the wordmark run into the card name", () => {
+  it("does not let the owner handle run into the card name", () => {
     const svg = buildTextLayer(layout, baseText).toString();
     const { texts } = boxesOf(svg);
 
-    const mark = requireText(texts, (t) => t.value === "GRADE", "the wordmark");
+    const handle = requireText(
+      texts,
+      (t) => t.cls === "handle",
+      "the owner handle",
+    );
     const name = requireText(
       texts,
       (t) => t.value.startsWith("Chespin"),
       "the card name",
     );
 
-    expect(extentOf(mark).right).toBeLessThanOrEqual(extentOf(name).left);
+    expect(extentOf(handle).right).toBeLessThanOrEqual(extentOf(name).left);
+  });
+
+  it("prints the owner's handle, not the PixelGrade wordmark", () => {
+    const svg = buildTextLayer(layout, baseText).toString();
+
+    expect(svg).toContain("@omar_mendoza");
+    // The wordmark shared this column until 2026-07-30; both cannot fit.
+    expect(svg).not.toContain(">PIXEL<");
+    expect(svg).not.toContain(">GRADE<");
+  });
+
+  it("falls back to an initial disc when the owner has no avatar", () => {
+    const svg = buildTextLayer(layout, baseText).toString();
+    const { texts } = boxesOf(svg);
+
+    // No avatar data URI in baseText, so the disc carries initials instead of
+    // leaving an empty hole where the identity column should be.
+    expect(texts.some((t) => t.cls === "initials" && t.value === "OM")).toBe(
+      true,
+    );
+  });
+
+  it("composites the avatar clipped to a circle when one is supplied", () => {
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      ownerAvatarDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    }).toString();
+
+    // A square avatar printed square would read as a sticker, not a profile.
+    expect(svg).toContain('clip-path="url(#pg-avatar-clip)"');
+    expect(svg).not.toContain('class="initials"');
+  });
+
+  it("stacks the Pixel ID beneath the QR rather than beside it", () => {
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    }).toString();
+    const { texts, images } = boxesOf(svg);
+
+    const qr = images[images.length - 1];
+    const caption = requireText(
+      texts,
+      (t) => t.value === "PIXEL ID",
+      "the PIXEL ID caption",
+    );
+    const value = requireText(
+      texts,
+      (t) => t.value === baseText.pixelId,
+      "the Pixel ID",
+    );
+
+    // Both share the QR's horizontal centre — that is what "below the QR"
+    // means here, and it is what freed the column the card info expanded into.
+    const qrCentre = qr.x + qr.width / 2;
+    expect(Math.abs(caption.x - qrCentre)).toBeLessThanOrEqual(1);
+    expect(Math.abs(value.x - qrCentre)).toBeLessThanOrEqual(1);
+    expect(caption.anchorMiddle).toBe(true);
+    expect(value.anchorMiddle).toBe(true);
+  });
+
+  it("keeps the QR on an opaque plate so it still scans off frosted glass", () => {
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    }).toString();
+
+    // The band shows the artwork through it now; a QR read against whatever
+    // happens to be underneath will not scan.
+    expect(svg).toContain('fill="#FFFFFF"');
+  });
+
+  it("gives the card information column room for a long name", () => {
+    // The widened column (UI Feedback v1 edit #4) is the whole point of moving
+    // the Pixel ID under the QR. A long name used to shrink to the low 20s in
+    // the old four-column band; if someone narrows the column again, this fires
+    // before a slab is printed with unreadable type.
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      cardName: "Iono's Bellibolt ex",
+    }).toString();
+    const { texts } = boxesOf(svg);
+
+    const name = requireText(
+      texts,
+      (t) => t.cls === "name",
+      "the card name",
+    );
+
+    expect(name.size).toBeGreaterThanOrEqual(32);
   });
 
   it("does not let the grade collide with the Pixel ID", () => {
@@ -194,6 +299,189 @@ describe("slab label band", () => {
 
     expect(svg).toContain("&amp;");
     expect(svg).not.toContain("<x>");
+  });
+});
+
+/**
+ * The band's frosted treatment (client feedback 2026-07-30).
+ *
+ * The point of the change was to let the artwork show through the band. The
+ * risk it introduces is the opposite failure: a bright backdrop bleeding
+ * through far enough to take the white label text with it. A printed slab
+ * cannot be un-printed, so the contrast floor is asserted as arithmetic rather
+ * than trusted to the two constants staying sensible.
+ */
+describe("label band frosting", () => {
+  /** Relative luminance of a neutral grey at `value`/255, per WCAG. */
+  const luminance = (value: number): number => {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+
+  /** Contrast of white text against a neutral backdrop at `value`/255. */
+  const contrastAgainstWhite = (value: number): number =>
+    1.05 / (luminance(value) + 0.05);
+
+  it("keeps white label text legible over the brightest possible artwork", () => {
+    // Worst case: pure white artwork behind the band. Dimmed by the frost, then
+    // composited under the scrim over near-black.
+    const dimmed = 255 * BAND_FROST_BRIGHTNESS;
+    const behindText = dimmed * (1 - BAND_SCRIM_OPACITY);
+
+    // 4.5:1 is the WCAG floor for body text; the band is also printed, where
+    // dot gain eats margin, so this is deliberately not a bare pass.
+    expect(contrastAgainstWhite(behindText)).toBeGreaterThan(7);
+  });
+
+  it("still lets enough artwork through to read as glass", () => {
+    // The mirror of the test above: a scrim opaque enough to guarantee any
+    // contrast would also hide the scene, which is the thing the client
+    // rejected. Mid-grey artwork must survive to a visible level.
+    const midGrey = 128 * BAND_FROST_BRIGHTNESS * (1 - BAND_SCRIM_OPACITY);
+    expect(midGrey).toBeGreaterThan(12);
+  });
+
+  it("returns a band-sized, rounded, opaque-cornered panel", async () => {
+    const background = await sharp({
+      create: {
+        width: layout.canvasWidth,
+        height: layout.canvasHeight,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const band = await buildFrostedBand(background, layout);
+    const { width, height, channels } = await sharp(band).metadata();
+
+    expect(width).toBe(layout.labelWidth);
+    expect(height).toBe(layout.labelHeight);
+    // Rounded corners are cut with an alpha mask; without a fourth channel the
+    // corners would print square behind the scrim's radius.
+    expect(channels).toBe(4);
+  });
+
+  it("dims the artwork it sits on", async () => {
+    const background = await sharp({
+      create: {
+        width: layout.canvasWidth,
+        height: layout.canvasHeight,
+        channels: 3,
+        background: { r: 255, g: 255, b: 255 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const band = await buildFrostedBand(background, layout);
+    const { channels: stats } = await sharp(band).stats();
+
+    // White in, meaningfully darker out — the frost is doing its half of the
+    // legibility contract and not just blurring.
+    expect(stats[0].mean).toBeLessThan(255 * 0.75);
+  });
+
+  it("draws the scrim at the opacity the contrast maths assumes", () => {
+    const svg = buildTextLayer(layout, baseText).toString();
+    expect(svg).toContain(`fill-opacity="${BAND_SCRIM_OPACITY}"`);
+  });
+});
+
+/**
+ * The card window (reported from a real render, 2026-07-30).
+ *
+ * A landscape JPEG scan letterboxed into the portrait window came out with
+ * solid black bars above and below the card instead of the artwork showing
+ * through. The cause was format, not geometry: `toBuffer()` preserves the input
+ * format, and JPEG has no alpha, so the transparent padding was flattened to
+ * black. Nothing throws — it just prints wrong.
+ */
+describe("card window", () => {
+  /** A landscape JPEG, i.e. exactly what a phone scan looks like. */
+  const landscapeJpeg = () =>
+    sharp({
+      create: {
+        width: 600,
+        height: 400,
+        channels: 3,
+        background: { r: 200, g: 30, b: 30 },
+      },
+    })
+      .jpeg()
+      .toBuffer();
+
+  /** A canvas-sized solid green background, easy to spot through a letterbox. */
+  const greenBackground = () =>
+    sharp({
+      create: {
+        width: layout.canvasWidth,
+        height: layout.canvasHeight,
+        channels: 3,
+        background: { r: 0, g: 180, b: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+  it("lets the artwork show through the letterbox instead of printing black bars", async () => {
+    const png = await compositePng(
+      layout,
+      await greenBackground(),
+      await landscapeJpeg(),
+      baseText,
+      // The case draws a gloss over the whole trim; without it the sample below
+      // is the composite's own output rather than plastic on top of it.
+      { showCase: false },
+    );
+
+    // Sample just inside the top edge of the card window. A 600x400 image
+    // contained into a 65x90 window letterboxes heavily top and bottom, so this
+    // point is padding — it must be the background, not black.
+    const { data } = await sharp(png)
+      .extract({
+        left: layout.openingX + Math.round(layout.openingWidth / 2),
+        top: layout.openingY + 4,
+        width: 1,
+        height: 1,
+      })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const [r, g, b] = data;
+    expect(g).toBeGreaterThan(120);
+    expect(r).toBeLessThan(90);
+    expect(b).toBeLessThan(90);
+  });
+
+  it("honours EXIF orientation so a phone scan is not composited sideways", async () => {
+    // Orientation 6 = "rotate 90° clockwise on display", which is what a phone
+    // writes for a portrait shot. sharp ignores the tag unless `.rotate()` is
+    // called, so without it the card lands on its side in the window.
+    const rotated = await sharp({
+      create: {
+        width: 400,
+        height: 600,
+        channels: 3,
+        background: { r: 10, g: 10, b: 200 },
+      },
+    })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+
+    // Metadata has to be read off the RENDERED buffer, not the pipeline —
+    // `metadata()` describes the source image and would report the pre-rotation
+    // dimensions whether or not `.rotate()` was ever applied.
+    const oriented = await sharp(
+      await sharp(rotated).rotate().png().toBuffer(),
+    ).metadata();
+
+    // 400x600 tagged "turn it" renders as 600x400. If this ever reads 400x600
+    // the pipeline is not applying the tag.
+    expect(oriented.width).toBe(600);
+    expect(oriented.height).toBe(400);
   });
 });
 

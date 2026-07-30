@@ -27,7 +27,14 @@ export const createUserZodSchema = z.object({
     .regex(/^(?=.*[A-Z])/, { message: "Password must contain at least 1 uppercase letter." })
     .regex(/^(?=.*[!@#$%^&*])/, { message: "Password must contain at least 1 special character." })
     .regex(/^(?=.*\d)/, { message: "Password must contain at least 1 number." }),
-  username: usernameSchema.optional(),
+  // REQUIRED at sign-up (client, UI Feedback v1 edit #2): the username is the
+  // public Creator Profile handle, so an account without one has a profile page
+  // that cannot be addressed. Google sign-ups never reach this schema — passport
+  // derives a handle instead (see UserServices.generateUniqueUsername).
+  //
+  // Accounts created before this stay valid: the field is still optional on the
+  // model, and `updateUserZodSchema` below is what they use to fill it in.
+  username: usernameSchema,
   phone: z
     .string({ error: "Phone must be string" })
     .regex(/^\+[1-9]\d{6,14}$/, "Phone must be in E.164 format e.g. +8801712345678")

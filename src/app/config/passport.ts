@@ -11,6 +11,7 @@ import { configs } from "./index";
 import { AuthIdentity } from "../modules/auth_identity/auth_identity.model";
 import { IUser, UserRole } from "../modules/user/user.interface";
 import { User } from "../modules/user/user.model";
+import { UserServices } from "../modules/user/user.service";
 
 passport.use(
   new LocalStrategy(
@@ -100,8 +101,17 @@ if (googleClientId && googleClientSecret && googleCallbackUrl) {
             return done(null, false, { message: "Account has been deleted" });
           }
         } else {
+          // Google never asks for a handle, but every account needs one (UI
+          // Feedback v1, edit #2) — otherwise OAuth users are the only cohort
+          // whose Creator Profile has nothing to be addressed by. Seeded from
+          // the email local-part, changeable later in Settings.
+          const username = await UserServices.generateUniqueUsername(
+            email.split("@")[0] || profile.displayName,
+          );
+
           user = await User.create({
             email,
+            username,
             name: profile.displayName,
             avatar: { url: profile.photos?.[0]?.value || "", publicId: "" },
             role: UserRole.user,

@@ -93,6 +93,30 @@ export const SLAB_DEFAULTS = {
 
 export const SLAB_EXPORT_DPI = 300;
 
+/**
+ * The label band's frosted-glass treatment.
+ *
+ * Client feedback 2026-07-30: the band read as "a separate or random
+ * background" — a flat near-opaque plate sitting on top of the artwork rather
+ * than part of it. It is now the artwork itself, blurred and darkened in place,
+ * so the scene shows through the panel the way it does through real holder
+ * plastic.
+ *
+ * ⚠️ These two numbers are a LEGIBILITY CONTRACT, not styling. The artwork
+ * behind the band is AI-generated and its brightness is unpredictable, and
+ * unreadable text on a printed slab cannot be recovered — the slab is the
+ * product. Together they set the worst case: the brightest possible backdrop
+ * (white) is multiplied to `BAND_FROST_BRIGHTNESS`, then composited under a
+ * scrim of `BAND_SCRIM_OPACITY` near-black, which lands white body text at
+ * about 8.4:1 contrast — comfortably past the 4.5:1 floor with room for print
+ * dot gain. Raising either value to show more of the scene eats that margin,
+ * so re-check the contrast maths before touching them; `slabComposite.test.ts`
+ * pins the arithmetic.
+ */
+export const BAND_FROST_BLUR_SIGMA = 18;
+export const BAND_FROST_BRIGHTNESS = 0.55;
+export const BAND_SCRIM_OPACITY = 0.45;
+
 /** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI — (80+6) × (135+6) mm.
  *  Derived from SLAB_DEFAULTS; kept as a literal for the frontend preview and
  *  for tests that assert the export size without instantiating a label. */

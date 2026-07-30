@@ -1,6 +1,11 @@
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
-import { SLAB_EXPORT_DPI } from "../../constants";
+import {
+  BAND_FROST_BLUR_SIGMA,
+  BAND_FROST_BRIGHTNESS,
+  BAND_SCRIM_OPACITY,
+  SLAB_EXPORT_DPI,
+} from "../../constants";
 import { SlabLayout } from "./slab.geometry";
 
 /**
@@ -29,6 +34,16 @@ export interface LabelText {
   /** Pre-rendered QR as a data URI, drawn into the band's right-hand slot.
    *  Optional so the label still composites if QR generation fails. */
   qrDataUri?: string;
+  /** The slab owner's public handle, printed under their avatar in the band's
+   *  first column (client, UI Feedback v1 edit #4 — it replaced the PixelGrade
+   *  wordmark). Optional: accounts predate the username field. */
+  ownerUsername?: string;
+  /** The owner's avatar as a data URI. Optional — a remote URL cannot be used,
+   *  because librsvg will not fetch one, and a missing avatar falls back to an
+   *  initial disc drawn in code. */
+  ownerAvatarDataUri?: string;
+  /** Fallback initial(s) for the avatar disc when there is no image. */
+  ownerInitials?: string;
 }
 
 /** XML-escape — card names legitimately contain `&` (e.g. "Bill & Co"), which
@@ -62,9 +77,17 @@ export const formatGrade = (grade: number): string =>
  *
  * Everything is derived from the band rectangle rather than from the trim, so
  * a label stored with different `labelWMm`/`labelHMm` still lays out correctly.
- * A translucent plate sits behind the text: the background underneath is
- * AI-generated and its brightness is not predictable, and unreadable label text
- * on a printed slab is unrecoverable.
+ *
+ * The panel behind the text is TWO layers, and this builder only draws the
+ * second. `buildFrostedBand` blurs and dims the artwork itself in place, and
+ * the scrim below sits on top of that to guarantee contrast. Splitting it is
+ * what lets the band show the scene through it: a single opaque plate — which
+ * is what this was until 2026-07-30 — reads as a black bar laid over a picture,
+ * which is exactly the "separate or random background" the client rejected.
+ *
+ * The scrim cannot be dropped in favour of the blur alone. Blur redistributes
+ * brightness, it does not bound it, so a sunlit backdrop stays bright after
+ * blurring and would take white text with it. See BAND_SCRIM_OPACITY.
  */
 export const buildTextLayer = (
   layout: SlabLayout,
@@ -75,29 +98,50 @@ export const buildTextLayer = (
   // ---- Columns ----
   //
   // Tiled from explicit widths that sum to the band's inner width, and laid
-  // out from the RIGHT so the QR (a fixed square) anchors the row and every
-  // other column falls out of what is left. Positioning each column from its
-  // own fraction of the band, as this did originally, let neighbours overlap:
-  // the wordmark ran into the card name and the grade printed on top of the
-  // Pixel ID. Columns that tile cannot collide.
+  // out from the RIGHT so the QR column anchors the row and every other column
+  // falls out of what is left. Positioning each column from its own fraction of
+  // the band, as this did originally, let neighbours overlap: the wordmark ran
+  // into the card name and the grade printed on top of the Pixel ID. Columns
+  // that tile cannot collide.
+  //
+  // THREE columns of furniture, not four (client, UI Feedback v1 edit #4):
+  //
+  //   [ owner avatar + handle ][ card info ][ GRADE ][ QR over PIXEL ID ]
+  //
+  // The Pixel ID used to own a column of its own; stacking it under the QR is
+  // what frees the width that (a) puts the grade next to the QR and (b) widens
+  // the card-information column, which were both asked for in the same note.
+  // The card info column ends up ~58% wider than it was.
   const padX = Math.round(labelWidth * 0.035);
   const gap = Math.round(padX * 0.6);
   const inner = labelWidth - padX * 2;
 
-  const qrSize = Math.round(labelHeight * 0.58);
-  const qrX = labelX + labelWidth - padX - qrSize;
+  // The QR column holds the code AND the id beneath it, so it is sized by
+  // whichever of the two is wider — the id is the longer of the pair at typical
+  // sizes, and a column cut to the QR alone would clip it.
+  const qrColW = Math.round(inner * 0.19);
+  const qrColRight = labelX + labelWidth - padX;
+  const qrColLeft = qrColRight - qrColW;
+  const qrColCentre = qrColLeft + qrColW / 2;
 
-  const idW = Math.round(inner * 0.17);
-  const idRight = qrX - gap;
-  const idLeft = idRight - idW;
+  // Smaller than the old 0.58 because the column is now shared with two lines
+  // of text. At 300 DPI this is still ~10 mm square, which scans reliably for
+  // a short URL; going much below that risks a code that will not read off
+  // a printed slab.
+  const qrSize = Math.min(Math.round(labelHeight * 0.5), qrColW);
+  const qrX = Math.round(qrColCentre - qrSize / 2);
 
   const gradeW = Math.round(inner * 0.14);
-  const gradeCentre = idLeft - gap - gradeW / 2;
-  const gradeLeft = gradeCentre - gradeW / 2;
+  const gradeRight = qrColLeft - gap;
+  const gradeLeft = gradeRight - gradeW;
+  const gradeCentre = gradeLeft + gradeW / 2;
 
-  const markX = labelX + padX;
-  const markW = Math.round(inner * 0.15);
-  const infoX = markX + markW + gap;
+  // The owner's identity replaces the PIXEL GRADE wordmark.
+  const ownerX = labelX + padX;
+  const ownerW = Math.round(inner * 0.17);
+  const ownerCentre = ownerX + ownerW / 2;
+
+  const infoX = ownerX + ownerW + gap;
   const infoW = gradeLeft - gap - infoX;
 
   // ---- Type ----
@@ -163,14 +207,36 @@ export const buildTextLayer = (
     tracking: 2,
     advance: CAPS_ADVANCE,
   });
-  const markTracking = Math.max(1, Math.round(labelHeight * 0.012));
-  const markSize = fitToColumn(
-    Math.round(labelHeight * 0.16),
-    markW,
-    5, // "GRADE" — the longer of the two wordmark lines
-    { tracking: markTracking, advance: CAPS_ADVANCE },
+  // ---- Owner identity ----
+  //
+  // The avatar is a disc sized from the band height, with the handle beneath.
+  // Both are centred in the column so a short handle does not read as
+  // left-aligned against a centred disc.
+  const avatarSize = Math.min(
+    Math.round(labelHeight * 0.44),
+    ownerW,
   );
-  const idSize = fitToColumn(microSize, idW, text.pixelId.length, {
+  const avatarX = Math.round(ownerCentre - avatarSize / 2);
+  const avatarY = Math.round(labelY + labelHeight * 0.1);
+  const avatarRadius = Math.round(avatarSize / 2);
+
+  const handleText = text.ownerUsername ? `@${text.ownerUsername}` : "";
+  // Handles run to 24 characters, which at full size would be a third of the
+  // band wide — this is the column where shrinking matters most.
+  const handleSize = handleText
+    ? fitToColumn(Math.round(labelHeight * 0.105), ownerW, handleText.length, {
+        advance: 0.55,
+      })
+    : 0;
+  const handleChars = handleSize
+    ? Math.max(4, Math.floor(ownerW / (handleSize * 0.55)))
+    : 0;
+
+  const initialsSize = Math.round(avatarSize * 0.42);
+
+  // The id sits under the QR now, so it is bounded by the QR column rather than
+  // by a column of its own.
+  const idSize = fitToColumn(microSize, qrColW, text.pixelId.length, {
     tracking: 1,
   });
 
@@ -180,7 +246,6 @@ export const buildTextLayer = (
     advance: CAPS_ADVANCE,
   });
 
-  const midY = labelY + labelHeight / 2;
   const radius = Math.round(labelHeight * 0.09);
 
   // Character budget for the free-text column, from its pixel width.
@@ -197,7 +262,8 @@ export const buildTextLayer = (
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .mark   { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; letter-spacing: ${markTracking}px; }
+    .handle { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
+    .initials { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
     .name   { font-family: Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
     .meta   { font-family: Helvetica, Arial, sans-serif; fill: #D8D8D8; }
     .micro  { font-family: Helvetica, Arial, sans-serif; fill: #9A9A9A; letter-spacing: 1px; }
@@ -207,10 +273,37 @@ export const buildTextLayer = (
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
-        rx="${radius}" ry="${radius}" fill="#0B0B0Cdd" />
+        rx="${radius}" ry="${radius}" fill="#0B0B0C" fill-opacity="${BAND_SCRIM_OPACITY}" />
 
-  <text x="${markX}" y="${midY - labelHeight * 0.04}" class="mark" font-size="${markSize}">PIXEL</text>
-  <text x="${markX}" y="${midY + labelHeight * 0.17}" class="mark" font-size="${markSize}">GRADE</text>
+  <!-- The lit edge of the glass. Without it the frosted panel has no boundary
+       and bleeds into the artwork instead of sitting in front of it. -->
+  <rect x="${labelX + 1}" y="${labelY + 1}" width="${labelWidth - 2}" height="${labelHeight - 2}"
+        rx="${radius}" ry="${radius}"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="2" />
+
+  <!-- Owner identity: avatar disc over the handle. Replaced the PIXEL GRADE
+       wordmark on 2026-07-30 at the client's direction. The image is clipped to
+       a circle rather than masked, so a square avatar cannot print as a square. -->
+  <defs>
+    <clipPath id="pg-avatar-clip">
+      <circle cx="${avatarX + avatarRadius}" cy="${avatarY + avatarRadius}" r="${avatarRadius}" />
+    </clipPath>
+  </defs>
+  ${
+    text.ownerAvatarDataUri
+      ? `<image x="${avatarX}" y="${avatarY}" width="${avatarSize}" height="${avatarSize}"
+              preserveAspectRatio="xMidYMid slice" clip-path="url(#pg-avatar-clip)"
+              href="${text.ownerAvatarDataUri}" />`
+      : `<circle cx="${avatarX + avatarRadius}" cy="${avatarY + avatarRadius}" r="${avatarRadius}" fill="#6D4AFF" />
+         <text x="${avatarX + avatarRadius}" y="${avatarY + avatarRadius + initialsSize * 0.36}" class="initials" font-size="${initialsSize}" text-anchor="middle">${esc(text.ownerInitials ?? "")}</text>`
+  }
+  <circle cx="${avatarX + avatarRadius}" cy="${avatarY + avatarRadius}" r="${avatarRadius}"
+          fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" />
+  ${
+    handleText
+      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.82}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      : ""
+  }
 
   <line x1="${infoX - gap / 2}" y1="${labelY + labelHeight * 0.18}" x2="${infoX - gap / 2}" y2="${labelY + labelHeight * 0.82}"
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
@@ -230,13 +323,20 @@ export const buildTextLayer = (
   <text x="${gradeCentre}" y="${labelY + labelHeight * 0.58}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
   <text x="${gradeCentre}" y="${labelY + labelHeight * 0.8}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
 
-  <text x="${idRight}" y="${labelY + labelHeight * 0.42}" class="micro" font-size="${Math.round(idSize * 0.9)}" text-anchor="end">PIXEL ID</text>
-  <text x="${idRight}" y="${labelY + labelHeight * 0.6}" class="meta" font-size="${idSize}" text-anchor="end">${esc(text.pixelId)}</text>
+  <!-- QR over the Pixel ID (client, UI Feedback v1 edit #4 — the id used to sit
+       in its own column to the left of the code). Both are centred on the
+       column so the caption, the value and the code share one axis.
+
+       The QR keeps a white plate behind it: the band is frosted now, and a code
+       read against whatever artwork happens to be underneath will not scan. -->
   ${
     text.qrDataUri
-      ? `<image x="${qrX}" y="${Math.round(midY - qrSize / 2)}" width="${qrSize}" height="${qrSize}" href="${text.qrDataUri}" />`
+      ? `<rect x="${qrX - 3}" y="${avatarY - 3}" width="${qrSize + 6}" height="${qrSize + 6}" rx="4" ry="4" fill="#FFFFFF" />
+         <image x="${qrX}" y="${avatarY}" width="${qrSize}" height="${qrSize}" href="${text.qrDataUri}" />`
       : ""
   }
+  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.73}" class="micro" font-size="${Math.round(idSize * 0.9)}" text-anchor="middle">PIXEL ID</text>
+  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.89}" class="meta" font-size="${idSize}" text-anchor="middle">${esc(text.pixelId)}</text>
 </svg>`;
 
   return Buffer.from(svg);
@@ -330,6 +430,57 @@ export const buildCaseLayer = (layout: SlabLayout): Buffer => {
   return Buffer.from(svg);
 };
 
+/**
+ * The frosted glass behind the label band.
+ *
+ * Takes the region of the finished background that the band will cover, blurs
+ * it, dims it, and hands it back to be composited straight back where it came
+ * from. The band therefore shows the artwork's own colour and light rather than
+ * a fixed dark plate — which is the whole of the client's 2026-07-30 note that
+ * the art should "look like a natural continuation of the card" instead of a
+ * separate background.
+ *
+ * It has to happen here rather than in the SVG because an overlay cannot sample
+ * what is underneath it. SVG has no backdrop filter, so the only way to blur
+ * the *backdrop* is to cut it out, blur the pixels, and put them back.
+ *
+ * `background` must already be resized to the canvas: the extract window comes
+ * from layout coordinates and would be out of bounds on the raw generated image.
+ */
+export const buildFrostedBand = async (
+  background: Buffer,
+  layout: SlabLayout,
+): Promise<Buffer> => {
+  const { labelX, labelY, labelWidth, labelHeight } = layout;
+  const radius = Math.round(labelHeight * 0.09);
+
+  const frosted = await sharp(background)
+    .extract({
+      left: labelX,
+      top: labelY,
+      width: labelWidth,
+      height: labelHeight,
+    })
+    .blur(BAND_FROST_BLUR_SIGMA)
+    // Bounds the brightness the scrim then has to work against. Blur alone
+    // leaves a bright backdrop bright; see BAND_FROST_BRIGHTNESS.
+    .modulate({ brightness: BAND_FROST_BRIGHTNESS })
+    .toBuffer();
+
+  // Match the band's rounded corners, or the blurred rectangle prints as square
+  // shoulders poking out from behind the scrim's radius.
+  const corners = Buffer.from(
+    `<svg width="${labelWidth}" height="${labelHeight}" xmlns="http://www.w3.org/2000/svg">` +
+      `<rect width="${labelWidth}" height="${labelHeight}" rx="${radius}" ry="${radius}" fill="#FFFFFF" />` +
+      `</svg>`,
+  );
+
+  return sharp(frosted)
+    .composite([{ input: corners, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+};
+
 /** Bleed and trim guides, for the preview toggle. Never part of an export. */
 export const buildGuideLayer = (layout: SlabLayout): Buffer => {
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
@@ -346,8 +497,8 @@ export const buildGuideLayer = (layout: SlabLayout): Buffer => {
 };
 
 /**
- * Builds the finished PNG: background → card image in the fixed window →
- * label text → slab case → optional guides.
+ * Builds the finished PNG: background → frosted band → card image in the fixed
+ * window → label text → slab case → optional guides.
  *
  * Layer order matters. The case goes ABOVE the card and the label because it
  * is the plastic in front of them; below it, the gloss and rim would be
@@ -374,13 +525,31 @@ export const compositePng = async (
     .toBuffer();
 
   const card = await sharp(cardBuffer)
+    // EXIF orientation FIRST. A phone photograph of a card is almost always
+    // stored landscape with an orientation tag telling the viewer to turn it;
+    // sharp ignores that tag unless asked, so without this a user's own scan
+    // composites into the window lying on its side.
+    .rotate()
     .resize(layout.openingWidth, layout.openingHeight, {
       fit: "contain",
       background: { r: 0, g: 0, b: 0, alpha: 0 },
     })
+    // PNG is not cosmetic here — it is what makes the transparent background
+    // above mean anything. `toBuffer()` keeps the INPUT format, and a scan is a
+    // JPEG, which has no alpha channel: the letterbox padding gets flattened to
+    // solid black and prints as bars across the artwork instead of letting it
+    // show through. Any card image that is not exactly 65×90 hits this.
+    .png()
     .toBuffer();
 
   const layers: sharp.OverlayOptions[] = [
+    // Frosted glass first: it is derived from the background and goes straight
+    // back on top of it, underneath everything the band then prints.
+    {
+      input: await buildFrostedBand(background, layout),
+      left: layout.labelX,
+      top: layout.labelY,
+    },
     { input: card, left: layout.openingX, top: layout.openingY },
     { input: buildTextLayer(layout, text), left: 0, top: 0 },
   ];
