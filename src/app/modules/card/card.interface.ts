@@ -46,7 +46,22 @@ export interface ICardInitial {
   cardNumber?: string;
   rarity?: string;
   officialImageUrl?: string;
+  /**
+   * Which Scrydex printing this row represents, e.g. "unlimitedHolofoil".
+   *
+   * A card id is NOT enough to identify a price. Base Set Pikachu has eleven
+   * variants whose Near Mint market prices span two orders of magnitude, so
+   * pricing without a variant is a coin flip. Vision reports the variant it
+   * matched; it is stored here so every later refresh prices the same printing
+   * and the history measures the market rather than our own bookkeeping.
+   *
+   * Optional: rows created before 2026-07-31, and any card whose variant Vision
+   * did not report, fall back to the provider's preference order.
+   */
+  scrydexVariant?: string;
   latestPrice?: number;
+  /** Card condition the raw price refers to, e.g. "NM". Absent for graded. */
+  priceCondition?: string;
   /** Whether `latestPrice` is a raw or a graded comp. Never leave this implicit
    *  in the UI — see PriceBasis. */
   priceBasis?: PriceBasis;
@@ -55,6 +70,14 @@ export interface ICardInitial {
   currency: string;
   /** Drives the scheduled refresh — stale rows are re-priced first. */
   lastPricedAt?: Date;
+  /**
+   * When Scrydex's historical price archive was pulled for this card.
+   *
+   * A one-shot claim, not a timestamp anyone reads: the archive costs a credit
+   * per card, so it is fetched once and never again. Set even when the archive
+   * came back empty, otherwise every sweep would re-buy the same nothing.
+   */
+  historyBackfilledAt?: Date;
 }
 
 export type ICard = ICardInitial & Document;

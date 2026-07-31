@@ -57,12 +57,36 @@ const envSchema = z.object({
   SCRYDEX_API_KEY: z.string().optional(),
   SCRYDEX_TEAM_ID: z.string().optional(),
   SCRYDEX_BASE_URL: z.string().default("https://api.scrydex.com"),
-  /** Dev-only mock for identification + pricing while the client's Scrydex
-   *  credentials are pending. DOUBLE-GATED: honored only when NODE_ENV is
-   *  "development" — in production this flag is dead weight by design. */
-  MOCK_SCRYDEX: z.enum(["true", "false"]).default("false"),
+  /**
+   * Dev-only mock. DOUBLE-GATED: honored only when NODE_ENV is "development" —
+   * in production this flag is dead weight by design.
+   *
+   *   false   nothing mocked (production, and dev once Vision is enabled)
+   *   vision  identification faked, pricing real
+   *   true    both faked
+   *
+   * `vision` exists because the client's credentials genuinely behave that way:
+   * catalogue and pricing work, Vision 401s pending Scrydex entitlement. One
+   * all-or-nothing flag would force a choice between a working scan flow and a
+   * working price tracker.
+   */
+  MOCK_SCRYDEX: z.enum(["true", "false", "vision"]).default("false"),
 
-  PRICING_API_KEY: z.string().optional(),
+  /**
+   * Ceiling on cards re-priced per daily sweep.
+   *
+   * Env-tunable because it is a *budget* decision, not a code one — the right
+   * number depends on the Scrydex tier the client is actually paying for, and
+   * that has already changed once. Batched at 100 cards per credit, so the
+   * default costs ~10 credits a day. See jobs/index.ts for the arithmetic.
+   */
+  DAILY_PRICE_BATCH: z.coerce.number().int().positive().default(1000),
+
+  /**
+   * Scrydex covers pricing on the SCRYDEX_* credentials — there is no separate
+   * pricing vendor and no separate key. Retained only so the stored
+   * `PriceSource` on historical rows keeps a meaning.
+   */
   PRICING_SOURCE: z
     .enum(["tcgplayer", "pricecharting", "cardmarket", "scrydex"])
     .default("scrydex"),
@@ -168,12 +192,16 @@ export const configs = {
     base_url: env.SCRYDEX_BASE_URL,
     /** The NODE_ENV half of the double gate lives HERE, not at call sites —
      *  so no consumer can accidentally honor the flag in production. */
-    mock: env.MOCK_SCRYDEX === "true" && env.NODE_ENV === "development",
+    mock_vision:
+      (env.MOCK_SCRYDEX === "true" || env.MOCK_SCRYDEX === "vision") &&
+      env.NODE_ENV === "development",
+    mock_pricing:
+      env.MOCK_SCRYDEX === "true" && env.NODE_ENV === "development",
   },
 
   PRICING: {
-    api_key: env.PRICING_API_KEY,
     source: env.PRICING_SOURCE,
+    daily_batch: env.DAILY_PRICE_BATCH,
   },
 
   GRADING: {

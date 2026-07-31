@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import httpStatus from "http-status";
 import { JwtPayload } from "jsonwebtoken";
+import { ScrydexClient } from "../../services/scrydex/scrydex.client";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import { PriceServices, PriceWindow } from "./price.service";
@@ -67,9 +68,30 @@ const refreshNow = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+/**
+ * Scrydex credit consumption for the current billing period (admin only).
+ *
+ * Worth having a route for because Scrydex does not stop serving at the
+ * allowance — it rolls silently into billed overage at $0.006/credit on the
+ * Starter tier the client is on. Without this, the first sign of a runaway
+ * price sweep or a scan spike is an invoice.
+ *
+ * The usage endpoint does not itself consume credits, so polling it is free.
+ */
+const getVendorUsage = catchAsync(async (_req: Request, res: Response) => {
+  const result = await ScrydexClient.getUsage();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Scrydex usage retrieved successfully!",
+    data: result,
+  });
+});
+
 export const PriceControllers = {
   getCardPrice,
   getHistoryBatch,
   getPortfolioSummary,
   refreshNow,
+  getVendorUsage,
 };

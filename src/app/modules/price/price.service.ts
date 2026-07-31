@@ -2,8 +2,9 @@ import httpStatus from "http-status";
 import { PipelineStage, Types } from "mongoose";
 import { PRICE_ALERT_THRESHOLD_PCT } from "../../constants";
 import AppError from "../../errorHelpers/AppError";
-import { PricingProvider } from "../../services/pricing.provider";
+import { PricingProvider, type PriceQuote } from "../../services/pricing.provider";
 import { logger } from "../../utils/logger";
+import type { ICard } from "../card/card.interface";
 import { Card } from "../card/card.model";
 import { CollectionItem } from "../collection/collection.model";
 import { NotifType } from "../notification/notification.interface";
@@ -136,18 +137,88 @@ const changeOver = async (
 };
 
 /**
- * Records a fresh quote for one card and fans the result out to every
- * collection entry holding it.
+ * Seeds a card's price history from Scrydex's own daily archive.
  *
- * The denormalised copy on `collection_items` is what makes collection listing
- * and total-value maths a single query instead of a join per row.
+ * Without this a brand-new catalogue row has exactly one price point, so the
+ * price tracker draws a flat line and the 7d/30d/1y change columns stay empty
+ * until the daily sweep has run that many times — a one-year graph would be
+ * literally a year away. One extra Scrydex credit buys the whole backlog.
+ *
+ * Runs at most once per card: `historyBackfilledAt` is the claim. Best-effort
+ * throughout — a card with no archive is normal, and a failure here must never
+ * cost the caller its live quote.
  */
-const refreshCard = async (cardId: Types.ObjectId | string) => {
+const backfillHistory = async (cardId: Types.ObjectId | string) => {
   const card = await Card.findById(cardId);
-  if (!card) return null;
+  if (!card || card.historyBackfilledAt) return { inserted: 0 };
 
-  const quote = await PricingProvider.getPrice(card.scrydexCardId);
-  if (!quote) return null;
+  let quotes;
+  try {
+    quotes = await PricingProvider.getPriceHistory(
+      card.scrydexCardId,
+      card.game,
+      { preferredVariant: card.scrydexVariant },
+    );
+  } catch (error) {
+    logger.warn("Price history backfill failed", {
+      cardId: String(card._id),
+      error,
+    });
+    return { inserted: 0 };
+  }
+
+  // Stamp the claim even on an empty archive, so a card Scrydex has no history
+  // for is not re-requested (and re-billed) on every subsequent sweep.
+  card.historyBackfilledAt = new Date();
+  await card.save();
+
+  if (quotes.length === 0) return { inserted: 0 };
+
+  // De-duplicate explicitly rather than leaning on a unique index.
+  //
+  // A card can already hold points from earlier sweeps, and the archive covers
+  // days the sweep may already have written. The obvious fix — a unique
+  // {card, capturedAt} index — silently does not work: MongoDB will not change
+  // an existing index's options, so on any database that already has the
+  // non-unique version createIndex fails, Mongoose logs it and continues, and
+  // the constraint the code was relying on is simply absent. See price.model.ts.
+  const existing = await PriceHistory.find({ card: card._id })
+    .select("capturedAt")
+    .lean();
+  const seen = new Set(
+    existing.map((point) => new Date(point.capturedAt).getTime()),
+  );
+
+  const fresh = quotes.filter((quote) => !seen.has(quote.capturedAt.getTime()));
+  if (fresh.length === 0) return { inserted: 0 };
+
+  try {
+    // `ordered: false` so one bad point cannot discard the rest of the archive.
+    await PriceHistory.insertMany(
+      fresh.map((quote) => ({
+        card: card._id,
+        price: quote.price,
+        currency: quote.currency,
+        source: quote.source,
+        capturedAt: quote.capturedAt,
+      })),
+      { ordered: false },
+    );
+  } catch (error) {
+    logger.warn("Price history backfill insert failed", {
+      cardId: String(card._id),
+      error,
+    });
+  }
+
+  return { inserted: fresh.length };
+};
+
+/** Writes one quote onto a card + its history + every collection entry holding
+ *  it, then fires price alerts. Shared by the single and batch paths so the two
+ *  cannot drift — a bug fixed in one would otherwise survive in the other. */
+const applyQuote = async (card: ICard | null, quote: PriceQuote | null) => {
+  if (!card || !quote) return null;
 
   await PriceHistory.create({
     card: card._id,
@@ -160,6 +231,15 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
   card.latestPrice = quote.price;
   card.currency = quote.currency;
   card.lastPricedAt = quote.capturedAt;
+  // CLAUDE.md invariant #9 — the basis travels with the number, always. The
+  // schema defaults to `raw`, but defaulting is not the same as recording: a
+  // graded comp arriving later must overwrite it, not inherit the default.
+  card.priceBasis = quote.basis;
+  card.priceGradeRef = quote.gradeRef;
+  card.priceCondition = quote.condition;
+  // Pin the printing the figure came from, so the next refresh prices the same
+  // one even if the preference order changes underneath it.
+  if (quote.variantName) card.scrydexVariant = quote.variantName;
   await card.save();
 
   const [change24h, change7d, change30d] = await Promise.all([
@@ -214,17 +294,45 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
 };
 
 /**
+ * Records a fresh quote for one card and fans the result out to every
+ * collection entry holding it.
+ *
+ * The denormalised copy on `collection_items` is what makes collection listing
+ * and total-value maths a single query instead of a join per row.
+ *
+ * Costs 1 Scrydex credit. Anything looping over cards should use
+ * `refreshStalest`, which batches 100 cards into that same single credit.
+ */
+const refreshCard = async (cardId: Types.ObjectId | string) => {
+  const card = await Card.findById(cardId);
+  if (!card) return null;
+
+  const quote = await PricingProvider.getPrice(
+    card.scrydexCardId,
+    card.game,
+    card.scrydexVariant,
+  );
+
+  return applyQuote(card, quote);
+};
+
+/**
  * Scheduled sweep. HELD cards first (anything referenced by a collection
  * entry), then the rest of the catalogue with whatever budget remains; within
  * each group, oldest-priced first so an unfinished run still makes progress on
  * the stalest data.
  *
- * Held-first is a Scrydex budget decision, not a performance one: on the Growth
- * tier (50,000 credits/month, decided 2026-07-30) every quote costs a credit
- * from the same pool that pays for scans, so the cards users actually see on
- * their dashboards must be refreshed before catalogue strays that nobody holds.
- * The upgrade from Starter widened the budget; it did not remove the
- * competition between pricing and scans.
+ * Held-first is a Scrydex budget decision, not a performance one: every quote
+ * costs credits from the same monthly pool that pays for scans at 5 credits
+ * each, so the cards users actually see on their dashboards are refreshed
+ * before catalogue strays that nobody holds.
+ *
+ * ⚠️ The client's account is on Scrydex **Starter — 5,000 credits/month**
+ * (verified against the live account on 2026-07-31, not the Growth tier the
+ * earlier notes here assumed). Quoting card-by-card at that ceiling would spend
+ * the entire month's budget on ~5,000 quotes and leave nothing for scans, which
+ * is why this sweep batches: `getPrices` fetches 100 cards per credit, so a
+ * 1,000-card pass costs 10 credits, not 1,000.
  *
  * `limit` is a ceiling and there is no staleness floor — every call re-quotes
  * the stalest cards whether or not they were quoted an hour ago. That is fine
@@ -238,15 +346,23 @@ const refreshCard = async (cardId: Types.ObjectId | string) => {
 const refreshStalest = async (limit = 200) => {
   if (!PricingProvider.isConfigured()) {
     logger.warn("Skipping price refresh — pricing provider is not configured");
-    return { refreshed: 0, failed: 0, skipped: true };
+    return { refreshed: 0, failed: 0, backfilled: 0, skipped: true };
   }
 
-  const heldIds = await CollectionItem.distinct("card");
+  // distinct() surfaces a null for any collection entry missing a card, and a
+  // null inside the $nin below would exclude nothing while looking like it
+  // excludes everything held — so it is filtered out before either query sees it.
+  const heldIds = (await CollectionItem.distinct("card")).filter(Boolean);
+  const heldKeys = new Set(heldIds.map(String));
+
+  // `scrydexCardId`, `game`, and `scrydexVariant` are all needed to quote, so
+  // they are selected here rather than re-read per card inside the loop.
+  const projection = "_id scrydexCardId game scrydexVariant";
 
   const held = await Card.find({ _id: { $in: heldIds } })
     .sort({ lastPricedAt: 1 })
     .limit(limit)
-    .select("_id");
+    .select(projection);
 
   const remaining = limit - held.length;
   const rest =
@@ -254,18 +370,49 @@ const refreshStalest = async (limit = 200) => {
       ? await Card.find({ _id: { $nin: heldIds } })
           .sort({ lastPricedAt: 1 })
           .limit(remaining)
-          .select("_id")
+          .select(projection)
       : [];
 
   const cards = [...held, ...rest];
+  if (cards.length === 0) {
+    return { refreshed: 0, failed: 0, backfilled: 0, skipped: false };
+  }
+
+  // One batched vendor round trip per 100 cards, before any database writes.
+  const quotes = await PricingProvider.getPrices(
+    cards.map((card) => ({
+      scrydexCardId: card.scrydexCardId,
+      game: card.game,
+      scrydexVariant: card.scrydexVariant,
+    })),
+  );
 
   let refreshed = 0;
   let failed = 0;
+  let backfilled = 0;
 
   for (const card of cards) {
+    const quote = quotes.get(card.scrydexCardId);
+    // Scrydex has no quotable price for this card. Not a failure — plenty of
+    // cards genuinely have none — so it is not counted as one.
+    if (!quote) continue;
+
     try {
-      const quote = await refreshCard(card._id);
-      if (quote) refreshed += 1;
+      // Re-read the full document: the projection above deliberately omits the
+      // price fields `applyQuote` writes, and saving a projected document would
+      // be a validation error waiting to happen.
+      const full = await Card.findById(card._id);
+      await applyQuote(full, quote);
+      refreshed += 1;
+
+      // Held cards get their historical archive pulled once, so a card someone
+      // just added shows a real 30-day sparkline rather than a single dot.
+      // Catalogue strays are skipped — nobody is looking at their graph, and
+      // each backfill is another credit.
+      if (!full?.historyBackfilledAt && heldKeys.has(String(card._id))) {
+        const result = await backfillHistory(card._id);
+        if (result.inserted > 0) backfilled += 1;
+      }
     } catch (error) {
       failed += 1;
       logger.error("Price refresh failed for card", {
@@ -275,7 +422,7 @@ const refreshStalest = async (limit = 200) => {
     }
   }
 
-  return { refreshed, failed, skipped: false };
+  return { refreshed, failed, backfilled, skipped: false };
 };
 
 /**
@@ -371,5 +518,6 @@ export const PriceServices = {
   getCardPrice,
   refreshCard,
   refreshStalest,
+  backfillHistory,
   getPortfolioSummary,
 };

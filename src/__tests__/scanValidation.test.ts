@@ -70,6 +70,10 @@ describe("ScrydexMock gating", () => {
   it("is disabled outside NODE_ENV=development regardless of the env flag", () => {
     expect(configs.node_env).not.toBe("development");
     expect(ScrydexMock.enabled()).toBe(false);
+    // Both halves independently — `MOCK_SCRYDEX=vision` mocks only one of them,
+    // so a gate that checked the combined flag could leak the other.
+    expect(ScrydexMock.visionEnabled()).toBe(false);
+    expect(ScrydexMock.pricingEnabled()).toBe(false);
   });
 
   it("fabricated ids are mock-prefixed so leaked rows are identifiable", () => {

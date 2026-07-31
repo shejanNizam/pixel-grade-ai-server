@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { configs } from "../config/index";
-import { CardGame } from "../modules/card/card.interface";
+import { CardGame, PriceBasis } from "../modules/card/card.interface";
 import { PriceSource } from "../modules/price/price.interface";
 import { logger } from "../utils/logger";
 import type { IdentificationResult } from "./identification.provider";
@@ -9,14 +9,24 @@ import type { PriceQuote } from "./pricing.provider";
 /**
  * ⚠️ DEV-ONLY SCRYDEX MOCK — identification + pricing.
  *
- * Exists so frontend integration of the scan flow (including the
- * confirmation screen, which does not exist yet) and the price tracker can
- * proceed while the client's Scrydex credentials are pending
- * (decision 2026-07-19: credentials arrive AFTER site development completes).
+ * Exists so frontend integration of the scan flow and the price tracker can
+ * proceed without live vendor access.
  *
- * DOUBLE-GATED: `MOCK_SCRYDEX=true` in the env AND `NODE_ENV=development` —
- * the NODE_ENV half is enforced inside config/index.ts, so `enabled()` can
- * never be true in production no matter what the env file says.
+ * DOUBLE-GATED: the `MOCK_SCRYDEX` env flag AND `NODE_ENV=development` — the
+ * NODE_ENV half is enforced inside config/index.ts, so neither gate below can
+ * be true in production no matter what the env file says.
+ *
+ * ⚠️ The two halves are now SEPARATE, and that is not tidiness — it reflects
+ * what the client's credentials actually do (2026-07-31):
+ *
+ *   - Pricing and the catalogue work. `MOCK_SCRYDEX=true` there would replace
+ *     real market data with fabricated numbers, which is strictly worse.
+ *   - Vision returns 401 "You do not have access to this endpoint". Until
+ *     Scrydex enables it for the team, dev has no way to run a scan end to end.
+ *
+ * Hence `MOCK_SCRYDEX=vision`: fake identification, real prices. A single
+ * all-or-nothing flag would force a choice between a working scan flow and a
+ * working price tracker.
  *
  * Every fabricated record is marked: card ids carry a `mock-` prefix. If one
  * ever shows up outside a dev database, that prefix is the tell.
@@ -26,15 +36,29 @@ import type { PriceQuote } from "./pricing.provider";
  * sanctioned exception: loud, explicitly opted into, dev-only, and marked.
  */
 
-const enabled = (): boolean => configs.SCRYDEX.mock;
+/** Identification is mocked (`MOCK_SCRYDEX=true` or `=vision`). */
+const visionEnabled = (): boolean => configs.SCRYDEX.mock_vision;
+
+/** Pricing is mocked (`MOCK_SCRYDEX=true` only). */
+const pricingEnabled = (): boolean => configs.SCRYDEX.mock_pricing;
+
+/** True when anything at all is mocked. Used by boot-time warnings. */
+const enabled = (): boolean => visionEnabled() || pricingEnabled();
 
 /** Logged once per boot path, so a dev seeing fake candidates knows why. */
 let announced = false;
 const announce = () => {
   if (announced) return;
   announced = true;
+  const mocked = [
+    visionEnabled() ? "identification" : null,
+    pricingEnabled() ? "pricing" : null,
+  ]
+    .filter(Boolean)
+    .join(" and ");
+
   logger.warn(
-    "⚠️ MOCK_SCRYDEX is active — identification and pricing return fabricated dev data",
+    `⚠️ MOCK_SCRYDEX is active — ${mocked} returns fabricated dev data`,
   );
 };
 
@@ -112,11 +136,18 @@ const getPrice = (scrydexCardId: string): PriceQuote => {
     currency: "USD",
     source: PriceSource.scrydex,
     capturedAt: new Date(),
+    // Mirrors the real provider, which only ever returns raw on the current
+    // plan — a mock that omitted the basis would let a UI that forgets to
+    // render it pass in dev and break invariant #9 in production.
+    basis: PriceBasis.raw,
+    condition: "NM",
   };
 };
 
 export const ScrydexMock = {
   enabled,
+  visionEnabled,
+  pricingEnabled,
   identify,
   getPrice,
 };

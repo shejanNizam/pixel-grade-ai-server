@@ -1,4 +1,5 @@
 import cron from "node-cron";
+import { configs } from "../config/index";
 import { withCronLock } from "../utils/cronLock";
 import {
   ABANDONED_SCAN_TIMEOUT_MINUTES,
@@ -37,32 +38,40 @@ import { logger } from "../utils/logger";
 /**
  * Daily price refresh at 00:30, held/tracked cards first.
  *
- * Daily cadence and the batch size are Scrydex budget decisions. Quotes cost 1
- * Scrydex credit each, drawn from the same monthly pool that funds
- * identification at 5 credits per scan, so this constant and scan capacity are
- * in direct competition.
+ * Cadence and batch size are Scrydex budget decisions, and the budget is
+ * smaller than the previous note here assumed. Measured against the live
+ * account on 2026-07-31: the monthly allowance is **5,000 credits**, not the
+ * 50,000 the Growth tier recorded on 2026-07-30 would give. (5,000 matches
+ * Scrydex's Starter plan, though their API never returns a plan name — the
+ * number is what was verified.) The same pool funds identification at 5 credits
+ * per scan, so pricing and scan capacity are in direct competition.
  *
- * Growth tier (client, 2026-07-30) — 50,000 credits/month:
- *   1,000 cards/day × 30 = 30,000 credits, leaving ~20,000 ≈ 4,000 scans/month.
- * That is the same 60/40 pricing-to-scans split the client accepted on Starter
- * (which was 100/day = 3,000, leaving ~400 scans), scaled to the larger pool.
+ * What makes 1,000 cards/day affordable at that ceiling is BATCHING, not the
+ * tier. `refreshStalest` fetches 100 cards per Scrydex credit via the id-search
+ * endpoint:
+ *
+ *   1,000 cards/day ÷ 100 per credit = 10 credits/day ≈ 300 credits/month
+ *   leaving ~4,700 credits ≈ 940 scans/month.
+ *
+ * Quoting card-by-card, as the first implementation would have, would have cost
+ * 30,000 credits/month against a 5,000 pool — a 6× overrun billed as overage at
+ * $0.006/credit. If you ever replace the batch call with a loop, this number
+ * has to come down by two orders of magnitude in the same change.
  *
  * The limit is a CEILING, not a fixed spend: `refreshStalest` quotes at most
- * this many cards and simply runs out when the catalogue is smaller, so a
- * generous value costs nothing until there is a catalogue big enough to use it.
+ * this many cards and simply runs out when the catalogue is smaller.
  *
- * ⚠️ Do NOT restore the requirements' "hourly recommended" cadence on Growth,
- * despite what the earlier note here said. Hourly is 720 credits per card per
- * month, so the whole 50,000 pool buys hourly quotes for ~69 cards and leaves
- * nothing for scans. Hourly needs Professional at minimum, and a catalogue in
- * the hundreds makes it expensive even there.
+ * ⚠️ Do NOT adopt the requirements' "hourly recommended" cadence. Even batched,
+ * hourly multiplies this by 24, and the held-card slice of it is what grows
+ * with the user base. Daily stays until someone re-does the arithmetic against
+ * the tier the client is actually on.
  *
  * Raising the FREQUENCY is not a free way to get fresher prices either:
  * `refreshStalest` has no staleness floor, so a second daily pass re-quotes the
  * same cards and simply doubles the spend on any catalogue smaller than the
  * batch. Add a floor there before adding a pass here.
  */
-const DAILY_PRICE_BATCH = 1000;
+const DAILY_PRICE_BATCH = configs.PRICING.daily_batch;
 
 const startPriceRefresh = () =>
   cron.schedule("30 0 * * *", () =>

@@ -39,7 +39,8 @@ router.get(
  *     tags: [Price]
  *     summary: Trigger a price sweep immediately (admin only)
  *     description: >
- *       Same work the hourly cron does. Sweeps oldest-priced cards first.
+ *       Same work the daily cron does. Sweeps oldest-priced cards first,
+ *       batching 100 cards per Scrydex credit.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -57,6 +58,33 @@ router.post(
   "/refresh",
   checkAuth(UserRole.admin, UserRole.super_admin),
   PriceControllers.refreshNow,
+);
+
+/**
+ * @swagger
+ * /price/vendor-usage:
+ *   get:
+ *     tags: [Price]
+ *     summary: Scrydex credit consumption this billing period (admin only)
+ *     description: >
+ *       Scrydex does not stop serving when the monthly allowance runs out — it
+ *       rolls into billed overage. This is the only way to see that coming.
+ *       Identification costs 5 credits per scan and each batched price sweep
+ *       costs 1 per 100 cards, both from the same pool.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Credits consumed, remaining, overage, and daily usage
+ *       403:
+ *         description: Forbidden — insufficient role
+ *       503:
+ *         description: Scrydex credentials are not configured
+ */
+router.get(
+  "/vendor-usage",
+  checkAuth(UserRole.admin, UserRole.super_admin),
+  PriceControllers.getVendorUsage,
 );
 
 /**

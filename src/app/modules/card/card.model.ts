@@ -16,7 +16,12 @@ export const cardSchema = new Schema<ICard>(
     cardNumber: { type: String },
     rarity: { type: String },
     officialImageUrl: { type: String },
+    // Which printing this row is. See the interface — a card id alone does not
+    // identify a price, and refreshing a different variant each pass would put
+    // our own bookkeeping into the price history as if it were market movement.
+    scrydexVariant: { type: String },
     latestPrice: { type: Number },
+    priceCondition: { type: String },
     // Defaulted rather than optional: an unlabelled price is the ambiguity the
     // client reported, and everything the pricing provider returns today is a
     // raw comp. A graded price must set this explicitly.
@@ -28,6 +33,8 @@ export const cardSchema = new Schema<ICard>(
     priceGradeRef: { type: String },
     currency: { type: String, default: "USD" },
     lastPricedAt: { type: Date },
+    // One-shot claim for the historical archive pull — see the interface.
+    historyBackfilledAt: { type: Date },
   },
   {
     timestamps: true,

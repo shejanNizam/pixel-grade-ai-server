@@ -4,7 +4,9 @@ import AppError from "../../errorHelpers/AppError";
 import { Card } from "../card/card.model";
 import { GradingReport } from "../grading/grading.model";
 import { monthKey, startOfMonth } from "../../utils/dateWindows";
+import { logger } from "../../utils/logger";
 import { PriceHistory } from "../price/price.model";
+import { PriceServices } from "../price/price.service";
 import { ICollectionItem } from "./collection.interface";
 import { CollectionItem } from "./collection.model";
 
@@ -371,6 +373,29 @@ const addItem = async (userId: string, payload: Partial<ICollectionItem>) => {
 
   const card = await Card.findById(payload.card);
   if (!card) throw new AppError(httpStatus.NOT_FOUND, "Card not found");
+
+  // Price it now if nobody has. A card is usually added moments after being
+  // identified, so it has no quote yet and would otherwise sit at $0 on the
+  // user's collection and portfolio total until the 00:30 sweep — on the very
+  // screen whose whole point is what the card is worth.
+  //
+  // Two Scrydex credits at most (a quote plus the historical archive), spent
+  // only on a deliberate user action, and best-effort: a vendor outage must not
+  // stop someone adding a card to their own collection.
+  if (!card.latestPrice) {
+    try {
+      const quote = await PriceServices.refreshCard(card._id);
+      await PriceServices.backfillHistory(card._id);
+      // refreshCard wrote to its own copy of the document, so mirror the figure
+      // onto this one rather than re-reading it.
+      if (quote) card.latestPrice = quote.price;
+    } catch (error) {
+      logger.warn("Could not price a card on collection add", {
+        cardId: String(card._id),
+        error,
+      });
+    }
+  }
 
   return CollectionItem.create({
     ...payload,
