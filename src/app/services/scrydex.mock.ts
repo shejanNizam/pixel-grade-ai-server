@@ -62,6 +62,21 @@ const announce = () => {
   );
 };
 
+/**
+ * The marker that reaches the SCREEN, not just the database.
+ *
+ * The `mock-` id prefix marks fabricated rows for developers, but nobody
+ * reviewing the app sees an id — they see a card name. On 2026-08-01 the client
+ * scanned a card, was shown these three cards, and reported Scrydex as broken;
+ * they had no way to tell placeholder data from a real (wrong) match. The
+ * suffix below makes that unmistakable on the confirmation screen itself.
+ *
+ * Do not remove it to make a demo look tidier. Unlabelled fake data on a screen
+ * that also shows real grades is how a placeholder gets mistaken for a defect —
+ * or worse, for a result.
+ */
+const SAMPLE_SUFFIX = " (SAMPLE DATA — Scrydex Vision not connected)";
+
 // Real, well-known cards with stable public images (Pokémon TCG API CDN), so
 // the confirmation screen renders realistically. Ids are mock-prefixed.
 const MOCK_CANDIDATES = [
@@ -108,7 +123,14 @@ const MOCK_CANDIDATES = [
 const identify = (game: CardGame): IdentificationResult => {
   announce();
   return {
-    candidates: MOCK_CANDIDATES.map((c) => ({ ...c, game })),
+    // The suffix is applied HERE rather than baked into MOCK_CANDIDATES so the
+    // underlying fixture stays a clean card record — and so the label cannot be
+    // lost by anything that reads the fixture directly.
+    candidates: MOCK_CANDIDATES.map((c) => ({
+      ...c,
+      game,
+      name: `${c.name}${SAMPLE_SUFFIX}`,
+    })),
     languageCode: "en",
   };
 };

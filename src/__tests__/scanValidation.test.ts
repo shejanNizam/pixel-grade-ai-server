@@ -83,6 +83,11 @@ describe("ScrydexMock gating", () => {
     );
     for (const candidate of result.candidates) {
       expect(candidate.scrydexCardId).toMatch(/^mock-/);
+      // The id prefix marks the row for developers; the NAME is what a human
+      // reviewing the app actually reads. A client mistook unlabelled mock
+      // candidates for a broken Scrydex integration on 2026-08-01, so the
+      // on-screen label is now part of the contract.
+      expect(candidate.name).toMatch(/SAMPLE DATA/);
     }
     // Best match first, mirroring Scrydex's contract.
     const scores = result.candidates.map((c) => c.matchScore);
