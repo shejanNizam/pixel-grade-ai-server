@@ -84,7 +84,12 @@ export const toIdentifiedCard = (
     cardNumber: card.printed_number ?? card.number,
     rarity: card.rarity,
     officialImageUrl: pickImageUrl(card),
-    scrydexVariant: extras.variant,
+    // Vision reports `variant: null` on most matches and a real name on a few
+    // (verified 2026-08-06: 10 candidates, 1 named). Normalised to undefined so
+    // a null is never persisted — an absent variant must fall through to
+    // selectQuote's preference order, and `applyQuote` writes back whichever
+    // printing actually got priced, so the row self-corrects on first refresh.
+    scrydexVariant: extras.variant ?? undefined,
     matchScore: extras.matchScore ?? 0,
   };
 };
@@ -214,13 +219,35 @@ const bestRawPrice = (variant: ScrydexVariant): ScrydexPrice | null => {
 };
 
 /**
- * Best graded quote within a variant: the highest grade from any company.
+ * Grading companies, most authoritative first.
  *
- * Unreachable on the client's current Scrydex plan — 480 price objects sampled
- * across five expansions on 2026-07-31 returned `type: "raw"` every time. It is
- * implemented anyway because the schema is documented and stable, so graded
- * comps become a config change rather than a rewrite when the plan carries
- * them. Nothing calls it with `preferGraded` today.
+ * Needed because Scrydex returns comps from a long tail of graders — Base Set
+ * alone carries PSA, CGC, BGS, SGC, TAG, ACE, AGS, PGC, DGS, BCCG and CCIC
+ * (sampled 2026-08-06). "Highest grade wins" on its own would quote a BCCG 10
+ * over a PSA 10, which is not the number a collector means by "the graded
+ * price": PSA is the market benchmark and the others trade at a discount to it.
+ *
+ * Unlisted companies still qualify, they just rank last.
+ */
+const COMPANY_PREFERENCE = ["PSA", "BGS", "CGC", "SGC"];
+
+const companyRank = (price: ScrydexPrice): number => {
+  const index = COMPANY_PREFERENCE.indexOf((price.company ?? "").toUpperCase());
+  return index === -1 ? COMPANY_PREFERENCE.length : index;
+};
+
+/**
+ * Best graded quote within a variant: the most authoritative company first,
+ * then its highest grade.
+ *
+ * Company before grade is deliberate — a PSA 9 is a more meaningful reference
+ * than a TAG 10.
+ *
+ * ⚠️ Reachable now (Growth unlocked graded pricing on 2026-08-04) but still not
+ * called: `selectQuote` defaults to raw, and **which** grade to quote on a
+ * report is an open client decision — the predicted grade, or a fixed reference
+ * like PSA 9. See `docs/OPEN-QUESTIONS.md` §C. Do not wire `preferGraded` on
+ * without that answer.
  */
 const bestGradedPrice = (variant: ScrydexVariant): ScrydexPrice | null => {
   const usable = (variant.prices ?? []).filter(
@@ -229,9 +256,11 @@ const bestGradedPrice = (variant: ScrydexVariant): ScrydexPrice | null => {
 
   if (usable.length === 0) return null;
 
-  return usable.reduce((best, price) =>
-    Number(price.grade ?? 0) > Number(best.grade ?? 0) ? price : best,
-  );
+  return usable.reduce((best, price) => {
+    const rank = companyRank(price) - companyRank(best);
+    if (rank !== 0) return rank < 0 ? price : best;
+    return Number(price.grade ?? 0) > Number(best.grade ?? 0) ? price : best;
+  });
 };
 
 /** Where a variant sits in the fallback order. Lower is better. */

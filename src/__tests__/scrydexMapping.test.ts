@@ -105,9 +105,10 @@ describe("Scrydex price selection", () => {
   });
 
   describe("graded comps", () => {
-    // Unreachable on the client's current plan (every one of 480 sampled prices
-    // was raw), but the schema is documented — this pins the mapping so
-    // enabling graded comps is a data change, not a code change.
+    // Live since the Growth upgrade (2026-08-04) — Base Set alone returns
+    // ~3,700 graded prices across PSA, CGC, BGS, SGC, TAG, ACE and others.
+    // Still not wired to the UI: which grade to quote is an open client
+    // decision (OPEN-QUESTIONS §C), so these pin the mapping, not the product.
     const gradedOnly: ScrydexCard = {
       id: "x",
       variants: [
@@ -126,6 +127,29 @@ describe("Scrydex price selection", () => {
       expect(quote?.basis).toBe(PriceBasis.graded);
       expect(quote?.gradeRef).toBe("PSA 10");
       expect(quote?.price).toBe(2567.88);
+    });
+
+    it("prefers the benchmark grader over a higher grade from a minor one", () => {
+      // Scrydex returns a long tail of graders. A BCCG 10 is not what anyone
+      // means by "the graded price" — PSA sets the market and the rest trade
+      // at a discount, so company outranks grade.
+      const quote = selectQuote(
+        {
+          id: "x",
+          variants: [
+            {
+              name: "normal",
+              prices: [
+                { type: "graded", company: "BCCG", grade: "10", market: 400, currency: "USD" },
+                { type: "graded", company: "TAG", grade: "10", market: 550, currency: "USD" },
+                { type: "graded", company: "PSA", grade: "9", market: 900, currency: "USD" },
+              ],
+            },
+          ],
+        },
+        { preferGraded: true },
+      );
+      expect(quote?.gradeRef).toBe("PSA 9");
     });
 
     it("never silently substitutes a graded comp for a raw one", () => {
