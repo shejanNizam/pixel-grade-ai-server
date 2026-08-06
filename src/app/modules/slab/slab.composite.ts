@@ -178,6 +178,8 @@ export const buildTextLayer = (
 
   /** Bold uppercase — the widest case the band uses. */
   const CAPS_ADVANCE = 0.78;
+  /** Bold mixed-case, e.g. the owner handle. Between body (0.55) and caps. */
+  const BOLD_ADVANCE = 0.62;
 
   const gradeText = formatGrade(text.grade);
   const gradeLabelText = text.gradeLabel.toUpperCase();
@@ -223,13 +225,19 @@ export const buildTextLayer = (
   const handleText = text.ownerUsername ? `@${text.ownerUsername}` : "";
   // Handles run to 24 characters, which at full size would be a third of the
   // band wide — this is the column where shrinking matters most.
+  //
+  // ⚠️ The handle is drawn BOLD (see the `.handle` class), so it must be sized
+  // with BOLD_ADVANCE. It was using the 0.55 body-text figure, which is the
+  // exact per-face mistake this file's header warns about: "@pokeomar25" was
+  // sized to 21 px, drew ~143 px into a 131 px column, and overhung the divider
+  // into the card-name column. Silent, and only visible once printed.
   const handleSize = handleText
     ? fitToColumn(Math.round(labelHeight * 0.105), ownerW, handleText.length, {
-        advance: 0.55,
+        advance: BOLD_ADVANCE,
       })
     : 0;
   const handleChars = handleSize
-    ? Math.max(4, Math.floor(ownerW / (handleSize * 0.55)))
+    ? Math.max(4, Math.floor(ownerW / (handleSize * BOLD_ADVANCE)))
     : 0;
 
   const initialsSize = Math.round(avatarSize * 0.42);

@@ -61,7 +61,12 @@ const baseText: LabelText = {
  * clearance. Measured against the rendered output, not guessed.
  */
 const ADVANCE: Record<string, number> = {
-  handle: 0.55,
+  // BOLD mixed-case (`font-weight: 700`), not body text. This sat at 0.55 —
+  // the body figure — which made the overflow test below measure the handle as
+  // narrower than it draws and report a real collision as clearance. A
+  // 12-character handle overhung the divider into the card-name column for as
+  // long as both numbers agreed with each other and not with the renderer.
+  handle: 0.62,
   initials: 0.6,
   name: 0.6,
   meta: 0.55,
@@ -161,6 +166,37 @@ describe("slab label band", () => {
     );
 
     expect(extentOf(handle).right).toBeLessThanOrEqual(extentOf(name).left);
+  });
+
+  it("keeps the handle inside its own column, at any legal length", () => {
+    // The previous assertion only compared the handle against the card NAME,
+    // which starts well right of the divider — so a handle could overhang its
+    // column and still pass. This measures it against the column itself.
+    //
+    // 24 characters is the maximum a username may be (`usernameSchema`), so
+    // this is the worst case that can reach a printed slab, not a synthetic one.
+    for (const username of ["ab", "omar_mendoza", "a".repeat(24)]) {
+      const svg = buildTextLayer(layout, {
+        ...baseText,
+        ownerUsername: username,
+      }).toString();
+      const { texts } = boxesOf(svg);
+
+      const handle = requireText(
+        texts,
+        (t) => t.cls === "handle",
+        `the owner handle for "${username}"`,
+      );
+      const { left, right } = extentOf(handle);
+
+      // Column geometry, mirroring slab.composite.ts.
+      const padX = Math.round(layout.labelWidth * 0.035);
+      const ownerX = layout.labelX + padX;
+      const ownerW = Math.round((layout.labelWidth - padX * 2) * 0.17);
+
+      expect(left).toBeGreaterThanOrEqual(ownerX - 1);
+      expect(right).toBeLessThanOrEqual(ownerX + ownerW + 1);
+    }
   });
 
   it("prints the owner's handle, not the PixelGrade wordmark", () => {

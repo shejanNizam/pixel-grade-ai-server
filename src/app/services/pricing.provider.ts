@@ -3,7 +3,11 @@ import { PriceSource } from "../modules/price/price.interface";
 import { logger } from "../utils/logger";
 import { ScrydexCatalogue } from "./scrydex/scrydex.catalogue";
 import { isConfigured as scrydexIsConfigured } from "./scrydex/scrydex.client";
-import { selectQuote } from "./scrydex/scrydex.mapper";
+import {
+  selectGradedLadder,
+  selectQuote,
+  type GradedComp,
+} from "./scrydex/scrydex.mapper";
 import { ScrydexMock } from "./scrydex.mock";
 
 /**
@@ -29,8 +33,10 @@ export interface PriceQuote {
    * the UI — CLAUDE.md invariant #9: a market value is never rendered without
    * its basis, because the two differ by multiples for the same card.
    *
-   * Everything this account's plan returns today is `raw` (480 price objects
-   * sampled across five expansions on 2026-07-31, zero graded).
+   * This is always `raw` today: `selectQuote` defaults to raw and never
+   * substitutes a graded comp for a missing one. Graded figures travel
+   * separately in `gradedLadder`, so the two can be shown side by side without
+   * either being mistaken for the other.
    */
   basis: PriceBasis;
   /** "PSA 10" when `basis` is graded. Undefined for raw. */
@@ -45,6 +51,14 @@ export interface PriceQuote {
    * history where the jumps are our own bookkeeping, not the market.
    */
   variantName?: string;
+  /**
+   * Every PSA comp for the same printing, cheapest rung first.
+   *
+   * Backs the report's "raw value + PSA graded value" pair (client,
+   * 2026-08-06). Empty on plans without graded pricing — it was empty on
+   * Starter and populated the day the client moved to Growth.
+   */
+  gradedLadder?: GradedComp[];
 }
 
 /**
@@ -80,15 +94,21 @@ const getPrice = async (
     gradeRef: selected.gradeRef,
     condition: selected.condition,
     variantName: selected.variantName,
+    // Read off the SAME printing the raw quote came from — see
+    // selectGradedLadder. Free: the comps are already in this response.
+    gradedLadder: selectGradedLadder(card, {
+      preferredVariant: selected.variantName ?? preferredVariant,
+    }),
   };
 };
 
 /**
  * Many cards in one round trip — 100 per Scrydex credit instead of one.
  *
- * This is what makes a daily sweep affordable on the Starter plan: 1,000 cards
- * costs 10 credits here against 1,000 credits card-by-card. Cards Scrydex has
- * no price for are simply absent from the returned map.
+ * This is what keeps a daily sweep cheap: 1,000 cards costs 10 credits here
+ * against 1,000 credits card-by-card — the difference between 0.6% and 60% of
+ * the monthly Scrydex budget. Cards Scrydex has no price for are simply absent
+ * from the returned map.
  */
 const getPrices = async (
   cards: { scrydexCardId: string; game: CardGame; scrydexVariant?: string }[],
@@ -149,6 +169,9 @@ const getPrices = async (
         gradeRef: selected.gradeRef,
         condition: selected.condition,
         variantName: selected.variantName,
+        gradedLadder: selectGradedLadder(vendorCard, {
+          preferredVariant: selected.variantName ?? card.scrydexVariant,
+        }),
       });
     }
   }

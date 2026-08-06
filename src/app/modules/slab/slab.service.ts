@@ -346,6 +346,7 @@ const renderLabel = async (userId: string, labelId: string) => {
       ? ImageGenProvider.generateExtArtSet({
           cardName: card.name,
           setExpansion: card.setExpansion,
+          types: card.types,
         })
       : Promise.resolve(null),
     // Resolved once and frozen on the label. Under `generated` mode this is a

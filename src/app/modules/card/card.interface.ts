@@ -45,6 +45,16 @@ export interface ICardInitial {
   /** Printed number, e.g. "199/165". */
   cardNumber?: string;
   rarity?: string;
+  /**
+   * Energy/colour types from the publisher, e.g. ["Lightning"], ["Fire"].
+   *
+   * Carried purely as a PALETTE cue for slab artwork. The client asked
+   * (2026-08-06) for backgrounds that blend with the card rather than reading
+   * as separate AI art, and a type is a far more reliable colour anchor than a
+   * creature name the model may not know — "Lightning" reliably yields yellows
+   * and storm light, where "Electivire" is a coin flip.
+   */
+  types?: string[];
   officialImageUrl?: string;
   /**
    * Which Scrydex printing this row represents, e.g. "unlimitedHolofoil".
@@ -67,6 +77,23 @@ export interface ICardInitial {
   priceBasis?: PriceBasis;
   /** The grade a `graded` price refers to, e.g. "PSA 9". Absent for raw. */
   priceGradeRef?: string;
+  /**
+   * Every PSA comp for this printing, cheapest rung first.
+   *
+   * The client asked (2026-08-06) for reports to show the raw value *and* the
+   * PSA graded value. A single graded number cannot answer that honestly — a
+   * PSA 10 comp beside a card predicted at 5.5 overstates it by a multiple — so
+   * the whole ladder is stored and the report picks the rung matching its own
+   * grade (`pickGradedComp`).
+   *
+   * Empty until the card is next re-priced, and empty on any Scrydex plan
+   * without graded pricing (it was empty throughout the Starter period). Every
+   * consumer must render without it.
+   */
+  gradedPrices?: { grade: string; price: number }[];
+  /** Which grader `gradedPrices` came from. "PSA" today; stored so a later
+   *  switch to CGC or a multi-company view does not need a migration. */
+  gradedCompany?: string;
   currency: string;
   /** Drives the scheduled refresh — stale rows are re-priced first. */
   lastPricedAt?: Date;

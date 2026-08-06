@@ -3,12 +3,13 @@ import { computeLayout, mmToPx } from "../app/modules/slab/slab.geometry";
 import { ISlabLabel } from "../app/modules/slab/slab.interface";
 
 /**
- * Slab geometry, against the dimensions the client confirmed on 2026-07-29.
+ * Slab geometry, against the holder manufacturer's spec sheet (client,
+ * 2026-08-06: 80 × 136 × 7 mm, 64 × 90 mm window, 70 × 20 mm band).
  *
- * The label band moved from below the card window to above it, which changed
- * how the window's position is derived. These assertions pin the relationships
- * that the printed slab depends on — a regression here produces a label that
- * looks fine on screen and is wrong on paper.
+ * The label band sits above the card window, which is what determines how the
+ * window's position is derived. These assertions pin the relationships that the
+ * printed slab depends on — a regression here produces a label that looks fine
+ * on screen and is wrong on paper, and nobody finds out until it is printed.
  */
 
 /** A label document carrying the current defaults. */
@@ -26,13 +27,30 @@ const labelWithDefaults = (overrides: Partial<ISlabLabel> = {}) =>
   }) as ISlabLabel;
 
 describe("slab geometry", () => {
-  it("uses the client-confirmed v2 dimensions as defaults", () => {
+  it("uses the dimensions from the holder manufacturer's spec sheet", () => {
+    // Sent by the client 2026-08-06 as 5.35 × 3.15 × 0.27 in. These are the
+    // numbers a physical holder is actually made to, so a mismatch prints a
+    // label that does not fit — the failure is only discovered after printing.
     expect(SLAB_DEFAULTS.widthMm).toBe(80);
-    expect(SLAB_DEFAULTS.heightMm).toBe(135);
-    expect(SLAB_DEFAULTS.openingWidthMm).toBe(65);
+    expect(SLAB_DEFAULTS.heightMm).toBe(136);
+    expect(SLAB_DEFAULTS.openingWidthMm).toBe(64);
     expect(SLAB_DEFAULTS.openingHeightMm).toBe(90);
     expect(SLAB_DEFAULTS.labelWidthMm).toBe(70);
     expect(SLAB_DEFAULTS.labelHeightMm).toBe(20);
+  });
+
+  it("renders an old label at the dimensions it was sold at", () => {
+    // Labels store their own copy of every dimension precisely so a spec change
+    // cannot silently re-cut a slab someone already paid for. This asserts the
+    // 2026-07-29 spec still lays out from a stored document, not from the
+    // constants above.
+    const legacy = computeLayout(
+      labelWithDefaults({ heightMm: 135, openingWMm: 65 }),
+    );
+
+    expect(legacy.canvasHeight).toBe(mmToPx(135 + SLAB_DEFAULTS.bleedMm * 2));
+    expect(legacy.openingWidth).toBe(mmToPx(65));
+    expect(legacy.canvasHeight).not.toBe(SLAB_CANVAS_PX.height);
   });
 
   it("derives a canvas matching the published export size", () => {

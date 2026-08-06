@@ -15,6 +15,8 @@ export const cardSchema = new Schema<ICard>(
     setExpansion: { type: String },
     cardNumber: { type: String },
     rarity: { type: String },
+    // Palette cue for slab artwork — see the interface.
+    types: { type: [String], default: undefined },
     officialImageUrl: { type: String },
     // Which printing this row is. See the interface — a card id alone does not
     // identify a price, and refreshing a different variant each pass would put
@@ -31,6 +33,19 @@ export const cardSchema = new Schema<ICard>(
       default: PriceBasis.raw,
     },
     priceGradeRef: { type: String },
+    // The PSA ladder for this printing. `_id: false` because these are values,
+    // not documents — nothing ever references a single rung.
+    gradedPrices: {
+      type: [
+        {
+          _id: false,
+          grade: { type: String, required: true },
+          price: { type: Number, required: true, min: 0 },
+        },
+      ],
+      default: undefined,
+    },
+    gradedCompany: { type: String },
     currency: { type: String, default: "USD" },
     lastPricedAt: { type: Date },
     // One-shot claim for the historical archive pull — see the interface.

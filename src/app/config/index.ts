@@ -102,8 +102,11 @@ const envSchema = z.object({
    *
    *  v2 (2026-07-29): reworked prompt to the client's ordered workflow, plus
    *  imageQuality / measured centering / itemised defects in the output schema.
-   *  Reports issued under v1 keep their v1 grades — they are not back-filled. */
-  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v2"),
+   *  v3 (2026-08-06): per-band scale anchors for corners/edges/surface, a
+   *  required self-consistency pass, and defect descriptions that must state
+   *  what the defect is, how visible it is, and what it cost the grade.
+   *  Reports keep the grade they were issued under — none are back-filled. */
+  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v3"),
 
   // Slab background generation — vendor unconfirmed.
   IMAGEGEN_API_KEY: z.string().optional(),

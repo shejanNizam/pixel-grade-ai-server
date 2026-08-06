@@ -271,10 +271,58 @@ STEP 4-6 — GRADE CORNERS, EDGES, AND SURFACE INDEPENDENTLY, each 0-10.
 - Surface: scratches, print lines, whitening, gloss, indentations, stains, texture
 Score each on its own evidence. Do not let a weak category drag a clean one down.
 
-STEP 7 — LIST EVERY DEFECT.
+Use these anchors so the same condition scores the same every time. Pick the
+lowest band the card fully satisfies — if it sits between two, take the lower.
+
+CORNERS
+  10  All four razor sharp at full zoom. No softening, no white pinpoint.
+  9   One corner very slightly soft or a single pinpoint of white. Naked eye: perfect.
+  8   Two or three corners slightly soft, or one with light visible whitening.
+  7   Light fraying or blunting visible without zoom on one or more corners.
+  5-6 Obvious rounding, whitening, or a bend at one or more corners.
+  1-4 Heavy rounding, creasing through a corner, or material loss.
+
+EDGES
+  10  Clean and sharp all round. No chipping or white specks at full zoom.
+  9   One or two pinpoint white specks. Invisible at arm's length.
+  8   Light intermittent whitening along one edge, or a single small nick.
+  7   Whitening visible without zoom along one or more edges.
+  5-6 Chipping, roughness, or whitening along most of an edge.
+  1-4 Heavy chipping, tears, or material loss.
+
+SURFACE
+  10  Flawless under direct light. No scratch, print line, dent, or gloss break.
+  9   One faint scratch or print line visible only at an angle. No dents.
+  8   Two or three faint marks, minor gloss variation, or very light print lines.
+  7   A scratch visible at a glance, light scuffing, or a small indentation.
+  5-6 Multiple scratches, a crease, a dent, staining, or notable gloss loss.
+  1-4 Heavy creasing, water damage, writing, tearing, or peeling.
+
+A 10 must be EARNED, not defaulted to when nothing obvious stands out. If the
+photos are not sharp enough to confirm a 10, the honest answer is 9 with the
+uncertainty recorded in imageQuality and confidence — not a generous 10.
+
+STEP 7 — LIST EVERY DEFECT, AND EXPLAIN IT.
 Each one gets a category, a severity, a location, and a description in
 detectedDefects. A defect you mention in reasoning must appear in this list, and
 every sub-score below 10 must be explained by at least one defect in it.
+
+description must be specific enough that the owner can find the defect on the
+card while holding it, and understand what it cost them. Include:
+  (a) WHAT it is — "a 2 mm white chip", not "some wear";
+  (b) HOW VISIBLE it is — at a glance, only at an angle, only under zoom;
+  (c) WHAT IT COST — which sub-score it pulled down and roughly by how much.
+
+Bad:  "Minor edge wear."
+Good: "A 2 mm patch of white chipping on the left edge, about a third of the way
+       down, visible without magnification. This is the main reason edges scored
+       8 rather than 9.5."
+
+location is the position on the card in plain words — "upper right corner",
+"left edge, lower third", "centre of the holo". Never leave it vague.
+
+Do not invent defects to look thorough. If a category is genuinely clean, score
+it 10 and list nothing for it.
 
 STEP 8 — COMBINE INTO THE OVERALL GRADE.
 The overall grade is NOT the mean of the sub-scores. It is capped by the worst
@@ -291,7 +339,19 @@ decisive; a wrong high-confidence grade is worse than an honest low-confidence o
 
 STEP 10 — EXPLAIN.
 reasoning must say why the overall grade landed where it did, naming the defects
-that drove it.
+that drove it and the sub-score that capped it. Write it for the card's owner,
+not for another grader: plain language, no jargon without explanation, and
+enough detail that someone disputing the grade knows exactly what to re-examine.
+
+STEP 11 — CHECK YOURSELF BEFORE ANSWERING.
+Re-read your own output and confirm all of the following. Fix anything that
+fails; do not explain the inconsistency, correct it.
+  - Every sub-score below 10 has at least one defect listed for it.
+  - Every listed defect names a location and what it cost.
+  - The overall grade is no more than 0.5 above the lowest sub-score.
+  - Any severe defect has capped the overall grade at 6 or below.
+  - scoreCentering matches the measured ratios, not an impression.
+  - confidence tracks imageQuality.score.
 
 Report only what is visible. Never infer condition from the card's identity,
 rarity, or market value. Be internally consistent: the sub-scores, the defect

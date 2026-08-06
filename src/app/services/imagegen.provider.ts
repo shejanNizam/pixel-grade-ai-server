@@ -73,8 +73,8 @@ const PROMPT_PREAMBLE =
 /**
  * Where the slab's own furniture lands on this image.
  *
- * The generated art is not seen whole: a 65×90 mm card covers the middle of an
- * 80×135 mm slab and the label band covers the top ~20 mm. So the model was
+ * The generated art is not seen whole: a 64×90 mm card covers the middle of an
+ * 80×136 mm slab and the label band covers the top ~20 mm. So the model was
  * being asked for a composition and then having most of it hidden — the detail
  * it worked hardest on ended up under the card, and whatever busy area happened
  * to fall at the top fought the band for attention.
@@ -95,10 +95,44 @@ const COMPOSITION_DIRECTION =
   "around a rectangular object resting in the middle. Continuous scene, even " +
   "lighting, no vignette, no frame, no border.";
 
+/**
+ * Seam direction — how the artwork meets the card.
+ *
+ * Client, 2026-08-06: the extension should "blend naturally with the original
+ * card background ... rather than looking like separate AI-generated art".
+ *
+ * What is actually adjustable here is the *transition*, not the content. The
+ * generator never sees the card (see buildArtDirection for why), so it cannot
+ * literally continue the card's illustration. What it can do is arrive at the
+ * card's edge quietly: matched lighting direction, no competing focal point
+ * against the border, painted rather than photoreal so the two read as one
+ * medium, and no hard tonal step where the card sits.
+ *
+ * ⚠️ Honest limitation, already flagged to the client (OPEN-QUESTIONS §B): a
+ * standard BORDERED card has a hard printed frame, so nothing outside it can
+ * ever be visually continuous. This reads strongly on full-art and alt-art
+ * cards — the client's own Electivire sample is one — and weakly on ordinary
+ * bordered ones. No prompt fixes that; it is a property of the card.
+ */
+const SEAM_DIRECTION =
+  " Painted illustration style, soft and atmospheric, in the manner of " +
+  "traditional collectible-card artwork — not a photograph and not a 3D " +
+  "render. Single consistent light source. The area immediately around the " +
+  "centre must be quiet and even in tone, so a rectangular object placed " +
+  "there meets the scene without a visible step in brightness or colour.";
+
 /** What the slab pipeline knows about the card being framed. */
 export interface CardArtContext {
   cardName?: string;
   setExpansion?: string;
+  /**
+   * Publisher energy/colour types, e.g. ["Lightning"].
+   *
+   * The most reliable palette lever available. Image models handle "a lightning
+   * type's habitat" far more consistently than a creature name they may never
+   * have seen, and it steers colour without naming anything copyrighted.
+   */
+  types?: string[];
 }
 
 /**
@@ -119,11 +153,22 @@ const buildArtDirection = (context?: CardArtContext): string => {
     .join(", ");
   if (!subject) return "";
 
+  // The energy type is the reliable half of this. A model that has never seen
+  // "Electivire" still knows exactly what a lightning-charged landscape looks
+  // like, so the type is stated as the dominant palette instruction and the
+  // name is left as a secondary hint.
+  const types = (context?.types ?? []).filter(Boolean);
+  const palette = types.length
+    ? ` Dominant palette and weather: that of a ${types.join(" and ")} ` +
+      `type — its characteristic colours, light, and elemental atmosphere ` +
+      `should govern the whole image.`
+    : "";
+
   return (
     `. Render the natural ENVIRONMENT a creature named "${subject}" would ` +
     `inhabit — its habitat, palette, and atmosphere — as an empty landscape. ` +
     `The environment only: the creature itself must NOT appear, and neither ` +
-    `must any character, text, or trading-card imagery.`
+    `must any character, text, or trading-card imagery.${palette}`
   );
 };
 
@@ -232,7 +277,11 @@ const generateBackground = async (
   void heightPx;
 
   return renderPrompt(
-    PROMPT_PREAMBLE + prompt + buildArtDirection(cardContext) + COMPOSITION_DIRECTION,
+    PROMPT_PREAMBLE +
+      prompt +
+      buildArtDirection(cardContext) +
+      SEAM_DIRECTION +
+      COMPOSITION_DIRECTION,
     `slab-bg-${style}`,
   );
 };
@@ -260,7 +309,7 @@ const generateExtArtSet = async (
   const settled = await Promise.allSettled(
     EXT_ART_TREATMENTS.map((treatment, index) =>
       renderPrompt(
-        `${PROMPT_PREAMBLE}${treatment}${direction}${COMPOSITION_DIRECTION}`,
+        `${PROMPT_PREAMBLE}${treatment}${direction}${SEAM_DIRECTION}${COMPOSITION_DIRECTION}`,
         `slab-extart-${index + 1}`,
       ),
     ),

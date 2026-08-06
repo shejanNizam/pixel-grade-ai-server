@@ -25,6 +25,8 @@ export interface IdentifiedCard {
   setExpansion?: string;
   cardNumber?: string;
   rarity?: string;
+  /** Energy/colour types — a palette cue for slab artwork. */
+  types?: string[];
   officialImageUrl?: string;
   /**
    * Which printing Vision matched, e.g. "unlimitedHolofoil".
@@ -83,6 +85,7 @@ export const toIdentifiedCard = (
     // is null on modern and digital-only sets where `number` is all there is.
     cardNumber: card.printed_number ?? card.number,
     rarity: card.rarity,
+    types: card.types?.length ? card.types : undefined,
     officialImageUrl: pickImageUrl(card),
     // Vision reports `variant: null` on most matches and a real name on a few
     // (verified 2026-08-06: 10 candidates, 1 named). Normalised to undefined so
@@ -168,6 +171,100 @@ const VARIANT_DEPRIORITISED = ["jumbo", "jumboalternate", "metal"];
 
 const normaliseVariantName = (name?: string): string =>
   (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** One rung of a grading company's price ladder for a card. */
+export interface GradedComp {
+  /** "10", "9.5", "9" … kept as a string because half grades are real. */
+  grade: string;
+  price: number;
+}
+
+/**
+ * Every PSA comp for the printing we price, cheapest rung to dearest.
+ *
+ * The client asked (2026-08-06) for reports to show "both the raw card value
+ * and the PSA graded market value". A single graded figure cannot answer that
+ * honestly: PSA 10 beside a card we predict at 5.5 overstates its worth by a
+ * multiple, and PSA 1 understates it. The ladder is stored instead, and the
+ * report renders the rung matching its own predicted grade — "what it is worth
+ * raw, and what it would be worth if PSA graded it what we think it is".
+ *
+ * PSA only, deliberately. Scrydex returns CGC, BGS, SGC, TAG, ACE and a long
+ * tail besides, but the client named PSA and it is the market benchmark; the
+ * others would multiply the stored data for no decision anyone is making.
+ *
+ * Comes free — the comps are already in the `include=prices` response the live
+ * quote is read from, so this costs no extra Scrydex credit.
+ */
+export const selectGradedLadder = (
+  card: ScrydexCard | undefined,
+  options: { preferredVariant?: string; company?: string } = {},
+): GradedComp[] => {
+  const variants = card?.variants ?? [];
+  if (variants.length === 0) return [];
+
+  const company = (options.company ?? "PSA").toUpperCase();
+  const wanted = normaliseVariantName(options.preferredVariant);
+
+  // Same variant the live raw quote came from, or the same fallback order —
+  // a ladder read off a different printing than `latestPrice` would put two
+  // unrelated markets side by side on one report.
+  const exact = wanted
+    ? variants.find((variant) => normaliseVariantName(variant.name) === wanted)
+    : undefined;
+  const ordered = [
+    ...(exact ? [exact] : []),
+    ...[...variants]
+      .filter((variant) => variant !== exact)
+      .sort((a, b) => variantRank(a) - variantRank(b)),
+  ];
+
+  for (const variant of ordered) {
+    const comps = (variant.prices ?? [])
+      .filter(
+        (price) =>
+          price.type === "graded" &&
+          (price.company ?? "").toUpperCase() === company &&
+          isQuotable(price),
+      )
+      .map((price) => ({
+        grade: String(price.grade ?? ""),
+        price: Number((priceValue(price) as number).toFixed(2)),
+      }))
+      .filter((comp) => comp.grade !== "");
+
+    if (comps.length > 0) {
+      return comps.sort((a, b) => Number(a.grade) - Number(b.grade));
+    }
+  }
+
+  return [];
+};
+
+/**
+ * The rung a given predicted grade should be priced at.
+ *
+ * Exact match when the ladder has it. Otherwise the NEXT RUNG DOWN, not the
+ * nearest: PSA does not award every half grade on every card, and rounding a
+ * 8.7 prediction up to a PSA 9 comp quotes a price the card would not fetch.
+ * Erring downwards understates rather than oversells, which is the right way
+ * to be wrong about somebody's money.
+ */
+export const pickGradedComp = (
+  ladder: GradedComp[],
+  grade: number,
+): GradedComp | null => {
+  if (ladder.length === 0 || !Number.isFinite(grade)) return null;
+
+  const exact = ladder.find((comp) => Number(comp.grade) === grade);
+  if (exact) return exact;
+
+  const below = ladder.filter((comp) => Number(comp.grade) <= grade);
+  // Ladder is sorted ascending, so the last one at or under the grade is the
+  // closest from below. Nothing below means the grade is under the whole
+  // ladder — there is no comp, rather than a bad one.
+  return below.length > 0 ? (below[below.length - 1] as GradedComp) : null;
+};
 
 export interface SelectedQuote {
   price: number;

@@ -240,6 +240,14 @@ const applyQuote = async (card: ICard | null, quote: PriceQuote | null) => {
   // Pin the printing the figure came from, so the next refresh prices the same
   // one even if the preference order changes underneath it.
   if (quote.variantName) card.scrydexVariant = quote.variantName;
+  // Only overwrite the ladder when the vendor actually sent one. An empty array
+  // means "this plan/card has no graded comps", and blanking a ladder we
+  // already hold would make the report's graded figure vanish on a bad day
+  // rather than simply go stale.
+  if (quote.gradedLadder?.length) {
+    card.gradedPrices = quote.gradedLadder;
+    card.gradedCompany = "PSA";
+  }
   await card.save();
 
   const [change24h, change7d, change30d] = await Promise.all([

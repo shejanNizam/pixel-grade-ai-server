@@ -6,7 +6,9 @@ import {
 } from "../app/services/scrydex/scrydex.games";
 import {
   parseYear,
+  pickGradedComp,
   pickImageUrl,
+  selectGradedLadder,
   selectQuote,
   toIdentifiedCards,
 } from "../app/services/scrydex/scrydex.mapper";
@@ -191,6 +193,94 @@ describe("Scrydex price selection", () => {
     expect(selectQuote({ id: "x", variants: [{ name: "normal", prices: [] }] })).toBeNull();
     expect(selectQuote({ id: "x", variants: [] })).toBeNull();
     expect(selectQuote(undefined)).toBeNull();
+  });
+});
+
+describe("PSA graded ladder", () => {
+  // Client 2026-08-06: "show both the raw card value and the PSA graded market
+  // value". These guard the half of that which can silently mislead.
+  const laddered: ScrydexCard = {
+    id: "x",
+    variants: [
+      {
+        name: "unlimitedHolofoil",
+        prices: [
+          { condition: "NM", type: "raw", market: 800, currency: "USD" },
+          { type: "graded", company: "PSA", grade: "10", market: 12000, currency: "USD" },
+          { type: "graded", company: "PSA", grade: "9", market: 3000, currency: "USD" },
+          { type: "graded", company: "PSA", grade: "7", market: 900, currency: "USD" },
+          // Other graders are returned by Scrydex and must not leak into a
+          // ladder the UI labels "PSA".
+          { type: "graded", company: "CGC", grade: "10", market: 8000, currency: "USD" },
+          { type: "graded", company: "BGS", grade: "9.5", market: 6000, currency: "USD" },
+        ],
+      },
+    ],
+  };
+
+  it("collects PSA comps only, cheapest rung first", () => {
+    const ladder = selectGradedLadder(laddered);
+    expect(ladder.map((c) => c.grade)).toEqual(["7", "9", "10"]);
+    expect(ladder.map((c) => c.price)).toEqual([900, 3000, 12000]);
+  });
+
+  it("reads the ladder off the same printing as the raw quote", () => {
+    // A ladder from a different variant would put two unrelated markets side by
+    // side on one report.
+    const twoVariants: ScrydexCard = {
+      id: "y",
+      variants: [
+        {
+          name: "jumbo",
+          prices: [
+            { type: "graded", company: "PSA", grade: "10", market: 50, currency: "USD" },
+          ],
+        },
+        {
+          name: "unlimitedHolofoil",
+          prices: [
+            { type: "graded", company: "PSA", grade: "10", market: 12000, currency: "USD" },
+          ],
+        },
+      ],
+    };
+    const ladder = selectGradedLadder(twoVariants, {
+      preferredVariant: "unlimitedHolofoil",
+    });
+    expect(ladder[0].price).toBe(12000);
+  });
+
+  it("prices a predicted grade at its own rung", () => {
+    const ladder = selectGradedLadder(laddered);
+    expect(pickGradedComp(ladder, 9)?.price).toBe(3000);
+    expect(pickGradedComp(ladder, 10)?.price).toBe(12000);
+  });
+
+  it("rounds DOWN to the next rung, never up", () => {
+    // A card predicted 8.7 is not a PSA 9 — quoting the PSA 9 comp would price
+    // a sale the card would not fetch. Erring low understates rather than
+    // oversells.
+    const ladder = selectGradedLadder(laddered);
+    expect(pickGradedComp(ladder, 8.7)?.grade).toBe("7");
+    expect(pickGradedComp(ladder, 9.9)?.grade).toBe("9");
+  });
+
+  it("returns nothing when the grade is below the whole ladder", () => {
+    // No comp beats a misleading one — a 3.0 card has no PSA market here.
+    const ladder = selectGradedLadder(laddered);
+    expect(pickGradedComp(ladder, 3)).toBeNull();
+    expect(pickGradedComp([], 9)).toBeNull();
+  });
+
+  it("is empty for a card with no graded comps at all", () => {
+    // The state of every card while the client was on Starter. Consumers must
+    // render without it.
+    expect(
+      selectGradedLadder({
+        id: "z",
+        variants: [{ name: "normal", prices: [{ condition: "NM", type: "raw", market: 5 }] }],
+      }),
+    ).toEqual([]);
   });
 });
 

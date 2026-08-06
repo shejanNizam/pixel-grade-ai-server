@@ -73,12 +73,28 @@ export const ALLOWED_IMAGE_MIME_TYPES = ["image/jpeg", "image/png"] as const;
 // ---------------------------------------------------------------------------
 
 export const SLAB_DEFAULTS = {
-  /** Overall trim, in millimetres. Prototype V1 feedback (2026-07-29) moved
-   *  this from 94 × 138 to match the physical holder the client selected. */
+  /**
+   * Overall trim, in millimetres.
+   *
+   * 2026-08-06: the client sent the holder manufacturer's own spec sheet —
+   * 5.35 in × 3.15 in × 0.27 in — which is 136 × 80 × 7 mm. Height moved
+   * 135 → 136. Previous revisions: 94 × 138 (v1), 80 × 135 (2026-07-29).
+   *
+   * The 7 mm thickness has no effect on a flat 2D export; it is recorded here
+   * so nobody has to re-derive it if a 3D mockup or packaging spec is ever
+   * needed.
+   */
   widthMm: 80,
-  heightMm: 135,
-  /** The card window. Fixed — it never shifts relative to the trim. */
-  openingWidthMm: 65,
+  heightMm: 136,
+  /**
+   * The card window — the *visible* aperture, not the card.
+   *
+   * 2026-08-06: 65 → 64 mm wide, per the same spec sheet (2.54 in × 3.54 in).
+   * Height is unchanged at 90 mm. Note this is narrower than a standard
+   * 63.5 × 88 mm trading card by design: the holder overlaps the card edges,
+   * which is what stops it sliding.
+   */
+  openingWidthMm: 64,
   openingHeightMm: 90,
   /** The grading label band, which sits ABOVE the card window. Its height is
    *  the tightest constraint on the whole design: 20 mm is 236 px at 300 DPI
@@ -117,10 +133,11 @@ export const BAND_FROST_BLUR_SIGMA = 18;
 export const BAND_FROST_BRIGHTNESS = 0.55;
 export const BAND_SCRIM_OPACITY = 0.45;
 
-/** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI — (80+6) × (135+6) mm.
+/** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI — (80+6) × (136+6) mm.
  *  Derived from SLAB_DEFAULTS; kept as a literal for the frontend preview and
- *  for tests that assert the export size without instantiating a label. */
-export const SLAB_CANVAS_PX = { width: 1016, height: 1665 } as const;
+ *  for tests that assert the export size without instantiating a label.
+ *  Was 1016 × 1665 while the trim was 135 mm tall (until 2026-08-06). */
+export const SLAB_CANVAS_PX = { width: 1016, height: 1677 } as const;
 
 /** Background art styles. Each maps to its own image-generation prompt. */
 export const SLAB_STYLES = ["cosmic", "inferno", "aurora", "vintage"] as const;
