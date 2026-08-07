@@ -546,7 +546,7 @@ describe("slab case", () => {
     expect(rim).toBeLessThan(layout.openingX - layout.trimX);
   });
 
-  it("puts a moulded tab at top and bottom centre", () => {
+  it("puts a moulded tab on left and right sides", () => {
     const svg = buildCaseLayer(layout).toString();
     const notches = [...svg.matchAll(/<rect x="(\d+)" y="(\d+)" width="(\d+)"/g)].filter(
       (m) => svg.slice(m.index).includes('fill-opacity="0.5"'),

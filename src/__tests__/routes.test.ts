@@ -34,13 +34,13 @@ describe("dashboard and reporting routes", () => {
     const res = await request(app).get(path);
 
     expect(res.status).not.toBe(404);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   /**
    * Asserted against the router stack rather than over HTTP, because HTTP
    * cannot tell the two apart: both routes carry the same auth guard, so a
-   * shadowed `/history` returns the very same 403 as a working one. Order is
+   * shadowed `/history` returns the very same 401 as a working one. Order is
    * the only observable difference, so order is what this checks.
    */
   it("registers /price/history ahead of /price/:cardId", () => {
@@ -72,7 +72,7 @@ describe("notification broadcast", () => {
       .send({ title: "Scheduled maintenance" });
 
     expect(res.status).not.toBe(404);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -91,7 +91,7 @@ describe("scan cancellation", () => {
     );
 
     expect(res.status).not.toBe(404);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 
   /**

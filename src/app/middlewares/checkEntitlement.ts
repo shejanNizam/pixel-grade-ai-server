@@ -78,25 +78,11 @@ export const requirePixelScope = async (
   }
 };
 
-/** Gates price tracking and the dashboard's market data to Collector and above. */
+/** Price tracking is a free feature for all registered users. */
 export const requirePriceTracking = async (
-  req: Request,
+  _req: Request,
   _res: Response,
   next: NextFunction,
 ) => {
-  try {
-    const { _id: userId } = req.user as JwtPayload;
-    const plan = await CreditServices.resolvePlan(userId as string);
-
-    if (!plan.priceTracking) {
-      throw new AppError(
-        httpStatus.FORBIDDEN,
-        "Price tracking is available on the Collector plan and above.",
-      );
-    }
-
-    next();
-  } catch (error) {
-    next(error);
-  }
+  next();
 };

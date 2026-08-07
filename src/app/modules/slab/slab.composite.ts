@@ -376,11 +376,11 @@ export const buildCaseLayer = (layout: SlabLayout): Buffer => {
   /** Hairlines that sell the plastic's thickness. */
   const edge = Math.max(2, Math.round(trimWidth * 0.0035));
 
-  // The moulded tabs at top and bottom centre of a one-touch holder.
-  const notchWidth = Math.round(trimWidth * 0.13);
-  const notchHeight = Math.max(4, Math.round(trimHeight * 0.011));
-  const notchRadius = Math.round(notchHeight / 2);
-  const notchX = Math.round(trimX + (trimWidth - notchWidth) / 2);
+  // The moulded tabs on the left and right sides of a side-opening holder.
+  const notchWidth = Math.max(4, Math.round(trimWidth * 0.011));
+  const notchHeight = Math.round(trimHeight * 0.08);
+  const notchRadius = Math.round(notchWidth / 2);
+  const notchY = Math.round(trimY + (trimHeight - notchHeight) / 2);
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -428,9 +428,9 @@ export const buildCaseLayer = (layout: SlabLayout): Buffer => {
         rx="${innerRadius}" ry="${innerRadius}"
         fill="none" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="${edge}" />
 
-  <rect x="${notchX}" y="${trimY}" width="${notchWidth}" height="${notchHeight}"
+  <rect x="${trimX}" y="${notchY}" width="${notchWidth}" height="${notchHeight}"
         rx="${notchRadius}" ry="${notchRadius}" fill="#FFFFFF" fill-opacity="0.5" />
-  <rect x="${notchX}" y="${trimY + trimHeight - notchHeight}"
+  <rect x="${trimX + trimWidth - notchWidth}" y="${notchY}"
         width="${notchWidth}" height="${notchHeight}"
         rx="${notchRadius}" ry="${notchRadius}" fill="#FFFFFF" fill-opacity="0.5" />
 </svg>`;

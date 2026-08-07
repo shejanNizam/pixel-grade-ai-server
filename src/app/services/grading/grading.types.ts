@@ -438,25 +438,59 @@ const normaliseCentering = (value: unknown): CenteringMeasurement => {
   };
 };
 
+export const getGradeLabel = (grade: number): GradeLabel => {
+  if (grade >= 9.8) return GradeLabel["GEM-MT"];
+  if (grade >= 9.0) return GradeLabel.MINT;
+  if (grade >= 8.0) return GradeLabel["NM-MT"];
+  if (grade >= 7.0) return GradeLabel.NM;
+  if (grade >= 5.0) return GradeLabel.EX;
+  if (grade >= 3.0) return GradeLabel.VG;
+  if (grade >= 1.5) return GradeLabel.GOOD;
+  if (grade >= 1.0) return GradeLabel.FR;
+  return GradeLabel.PR;
+};
+
 export const normalise = (
   parsed: Record<string, unknown>,
   modelVersion: string,
   raw: unknown,
-): GradingOutput => ({
-  grade: clamp(Number(parsed.grade), 0, 10),
-  gradeLabel: parsed.gradeLabel as GradeLabel,
-  scoreSurface: clamp(Number(parsed.scoreSurface), 0, 10),
-  scoreCorners: clamp(Number(parsed.scoreCorners), 0, 10),
-  scoreEdges: clamp(Number(parsed.scoreEdges), 0, 10),
-  scoreCentering: clamp(Number(parsed.scoreCentering), 0, 10),
-  confidence: clamp(Number(parsed.confidence), 0, 100),
-  reasoning: String(parsed.reasoning ?? ""),
-  imageQuality: normaliseImageQuality(parsed.imageQuality),
-  centering: normaliseCentering(parsed.centering),
-  detectedDefects: normaliseDefects(parsed.detectedDefects),
-  modelVersion,
-  raw,
-});
+): GradingOutput => {
+  const scoreSurface = clamp(Number(parsed.scoreSurface), 0, 10);
+  const scoreCorners = clamp(Number(parsed.scoreCorners), 0, 10);
+  const scoreEdges = clamp(Number(parsed.scoreEdges), 0, 10);
+  const scoreCentering = clamp(Number(parsed.scoreCentering), 0, 10);
+
+  const subgradeAvg = (scoreSurface + scoreCorners + scoreEdges + scoreCentering) / 4;
+  const parsedGrade = clamp(Number(parsed.grade), 0, 10);
+
+  // If the parsed grade is penalised far below the subgrade average (by > 1.0 point),
+  // adjust the grade to the rounded subgrade average so overall grade reflects subgrades.
+  const finalGrade =
+    parsedGrade < subgradeAvg - 1.0
+      ? Math.round(subgradeAvg * 2) / 2
+      : parsedGrade;
+
+  const finalGradeLabel =
+    (parsed.gradeLabel as GradeLabel) && parsedGrade >= subgradeAvg - 1.0
+      ? (parsed.gradeLabel as GradeLabel)
+      : getGradeLabel(finalGrade);
+
+  return {
+    grade: finalGrade,
+    gradeLabel: finalGradeLabel,
+    scoreSurface,
+    scoreCorners,
+    scoreEdges,
+    scoreCentering,
+    confidence: clamp(Number(parsed.confidence), 0, 100),
+    reasoning: String(parsed.reasoning ?? ""),
+    imageQuality: normaliseImageQuality(parsed.imageQuality),
+    centering: normaliseCentering(parsed.centering),
+    detectedDefects: normaliseDefects(parsed.detectedDefects),
+    modelVersion,
+    raw,
+  };
+};
 
 /**
  * The Pixel Verified rule, in one place, vendor-independent.
