@@ -13,13 +13,18 @@ export const checkAuth =
       const accessToken = req.headers.authorization?.split(" ")[1];
 
       if (!accessToken) {
-        throw new AppError(httpStatus.FORBIDDEN, "Please provide a valid access token.");
+        throw new AppError(httpStatus.UNAUTHORIZED, "Please provide a valid access token.");
       }
 
-      const verifiedToken = verifyToken(
-        accessToken,
-        configs.jwt_access_secret,
-      ) as JwtPayload;
+      let verifiedToken: JwtPayload;
+      try {
+        verifiedToken = verifyToken(
+          accessToken,
+          configs.jwt_access_secret,
+        ) as JwtPayload;
+      } catch {
+        throw new AppError(httpStatus.UNAUTHORIZED, "Invalid or expired access token.");
+      }
 
       const user = await User.findOne({ email: verifiedToken.email });
 
