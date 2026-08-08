@@ -1,8 +1,12 @@
+import multer from "multer";
 import { Router } from "express";
+import httpStatus from "http-status";
+import AppError from "../../errorHelpers/AppError";
 import { multerUpload } from "../../config/multer.config";
 import { checkAuth } from "../../middlewares/checkAuth";
 import { UserRole } from "../user/user.interface";
 import { UploadControllers } from "./upload.controller";
+import { logger } from "../../utils/logger";
 
 const router = Router();
 const allRoles = Object.values(UserRole) as string[];
@@ -47,7 +51,48 @@ const allRoles = Object.values(UserRole) as string[];
 router.post(
   "/",
   checkAuth(...allRoles),
-  multerUpload.array("files", 10),
+  (req, res, next) => {
+    try {
+      multerUpload.array("files", 10)(req, res, (err) => {
+        if (err) {
+          logger.error("Multer image upload error:", { error: err });
+          if (err instanceof multer.MulterError) {
+            if (err.code === "LIMIT_FILE_SIZE") {
+              return next(
+                new AppError(
+                  httpStatus.BAD_REQUEST,
+                  "File size exceeds the maximum limit (10MB).",
+                ),
+              );
+            }
+            if (err.code === "LIMIT_UNEXPECTED_FILE") {
+              return next(
+                new AppError(
+                  httpStatus.BAD_REQUEST,
+                  "Unexpected field or maximum 10 files allowed under field 'files'.",
+                ),
+              );
+            }
+            return next(
+              new AppError(
+                httpStatus.BAD_REQUEST,
+                `Upload error: ${err.message}`,
+              ),
+            );
+          }
+          return next(
+            new AppError(
+              httpStatus.BAD_REQUEST,
+              err.message || "File upload failed. Please check file size, format, and credentials.",
+            ),
+          );
+        }
+        next();
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
   UploadControllers.uploadFiles,
 );
 

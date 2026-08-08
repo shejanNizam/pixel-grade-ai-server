@@ -1,5 +1,7 @@
 node_modules/
 dist/
+coverage/
+logs/
 .vercel
 *.log
 

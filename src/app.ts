@@ -51,7 +51,7 @@ app.use(
 
 app.use(globalLimiter);
 
-// Body parsers
+// Body parsers (allow up to 50mb for high-resolution card photo uploads)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

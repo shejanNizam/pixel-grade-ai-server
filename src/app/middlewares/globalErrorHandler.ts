@@ -24,18 +24,26 @@ export const globalErrorHandler = async (
   }
 
   // Delete any files uploaded to Cloudinary if the request failed
-  if (req.file) {
-    await deleteFromCloudinary(req.file.path).catch(swallowError);
-  }
+  try {
+    if (req.file?.path) {
+      await deleteFromCloudinary(req.file.path).catch(swallowError);
+    }
 
-  if (req.files) {
-    const files = Array.isArray(req.files)
-      ? req.files
-      : Object.values(req.files as Record<string, Express.Multer.File[]>).flat();
+    if (req.files) {
+      const files = Array.isArray(req.files)
+        ? req.files
+        : Object.values(req.files as Record<string, Express.Multer.File[]>).flat();
 
-    await Promise.all(
-      files.map((f) => deleteFromCloudinary(f.path).catch(swallowError)),
-    );
+      const validFiles = files.filter(
+        (f): f is Express.Multer.File => Boolean(f && typeof f.path === "string" && f.path.trim().length > 0),
+      );
+
+      await Promise.all(
+        validFiles.map((f) => deleteFromCloudinary(f.path).catch(swallowError)),
+      );
+    }
+  } catch (cleanupErr) {
+    logger.error("Error during Cloudinary file cleanup in globalErrorHandler:", cleanupErr);
   }
 
   let errorSources: TErrorSources[] = [];
