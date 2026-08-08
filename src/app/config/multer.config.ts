@@ -8,7 +8,8 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const storage = new CloudinaryStorage({
   cloudinary: cloudinaryUpload,
   params: async (_req: Express.Request, file: Express.Multer.File) => {
-    const baseName = file.originalname
+    const originalName = file?.originalname || "unnamed";
+    const baseName = originalName
       .toLowerCase()
       .replace(/\.[^.]+$/, "")
       .replace(/\s+/g, "-")
@@ -18,7 +19,7 @@ const storage = new CloudinaryStorage({
     return {
       folder: "uploads",
       resource_type: "auto",
-      public_id: `${crypto.randomUUID()}-${baseName}`,
+      public_id: `${crypto.randomUUID()}-${baseName || "file"}`,
     };
   },
 });

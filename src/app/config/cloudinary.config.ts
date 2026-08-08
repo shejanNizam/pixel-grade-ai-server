@@ -4,6 +4,8 @@ import httpStatus from "http-status";
 import { configs } from "./index";
 import AppError from "../errorHelpers/AppError";
 
+import { logger } from "../utils/logger";
+
 cloudinary.config({
   cloud_name: configs.CLOUDINARY.cloudinary_cloud_name,
   api_key: configs.CLOUDINARY.cloudinary_api_key,
@@ -37,23 +39,22 @@ export const uploadBufferToCloudinary = async (
 
 // Extracts public_id from a Cloudinary URL.
 // e.g. https://res.cloudinary.com/xxx/image/upload/v123/folder/image.jpg → folder/image
-const extractPublicId = (url: string): string | null => {
+const extractPublicId = (url?: string): string | null => {
+  if (!url || typeof url !== "string") return null;
   const parts = url.split("/upload/");
   if (parts.length < 2) return null;
   const withoutVersion = (parts[1] ?? "").replace(/^v\d+\//, "");
   return withoutVersion.replace(/\.[^.]+$/, "");
 };
 
-export const deleteFromCloudinary = async (url: string): Promise<void> => {
+export const deleteFromCloudinary = async (url?: string): Promise<void> => {
   try {
+    if (!url || typeof url !== "string") return;
     const public_id = extractPublicId(url);
     if (!public_id) return;
     await cloudinary.uploader.destroy(public_id, { resource_type: "auto" });
   } catch (error: any) {
-    throw new AppError(
-      httpStatus.INTERNAL_SERVER_ERROR,
-      `Cloudinary deletion failed: ${error.message}`,
-    );
+    logger.error(`Cloudinary deletion failed for ${url}:`, error);
   }
 };
 
