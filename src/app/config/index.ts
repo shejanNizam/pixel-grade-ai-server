@@ -1,5 +1,10 @@
+import dotenv from "dotenv";
+import path from "path";
 import { z } from "zod";
 import { SLAB_CARD_RENDER_MODES } from "../constants";
+
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
 
 const envSchema = z.object({
   PORT: z.string().default("5000"),
