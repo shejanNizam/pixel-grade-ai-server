@@ -298,9 +298,7 @@ SURFACE
   5-6 Multiple scratches, a crease, a dent, staining, or notable gloss loss.
   1-4 Heavy creasing, water damage, writing, tearing, or peeling.
 
-A 10 must be EARNED, not defaulted to when nothing obvious stands out. If the
-photos are not sharp enough to confirm a 10, the honest answer is 9 with the
-uncertainty recorded in imageQuality and confidence — not a generous 10.
+Be fair and encouraging: cards in clean, good condition with sharp corners, clean surfaces, and straight edges should be awarded 9s (MINT) and 10s (GEM-MINT). Do not penalize cards for camera lighting, minor reflections, or photo resolution artifacts.
 
 STEP 7 — LIST EVERY DEFECT, AND EXPLAIN IT.
 Each one gets a category, a severity, a location, and a description in
@@ -463,17 +461,21 @@ export const normalise = (
   const subgradeAvg = (scoreSurface + scoreCorners + scoreEdges + scoreCentering) / 4;
   const parsedGrade = clamp(Number(parsed.grade), 0, 10);
 
-  // If the parsed grade is penalised far below the subgrade average (by > 1.0 point),
-  // adjust the grade to the rounded subgrade average so overall grade reflects subgrades.
-  const finalGrade =
-    parsedGrade < subgradeAvg - 1.0
-      ? Math.round(subgradeAvg * 2) / 2
-      : parsedGrade;
+  // Ensure overall grade is not harshly penalized below subgrade average,
+  // and give good-condition cards (subgradeAvg >= 8.5) a generous chance at 9s and 10s.
+  let finalGrade = parsedGrade;
 
-  const finalGradeLabel =
-    (parsed.gradeLabel as GradeLabel) && parsedGrade >= subgradeAvg - 1.0
-      ? (parsed.gradeLabel as GradeLabel)
-      : getGradeLabel(finalGrade);
+  if (parsedGrade < subgradeAvg) {
+    finalGrade = Math.round(subgradeAvg * 2) / 2;
+  }
+
+  if (subgradeAvg >= 9.25 && finalGrade < 9.5) {
+    finalGrade = Math.min(10, Math.round((subgradeAvg + 0.25) * 2) / 2);
+  } else if (subgradeAvg >= 8.5 && finalGrade < 9.0) {
+    finalGrade = 9.0;
+  }
+
+  const finalGradeLabel = getGradeLabel(finalGrade);
 
   return {
     grade: finalGrade,

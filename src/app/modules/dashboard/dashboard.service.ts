@@ -41,6 +41,8 @@ const getAdminOverview = async (): Promise<IAdminOverview> => {
     allTimeEarnings,
     thisMonthEarnings,
     lastMonthEarnings,
+    totalScans,
+    scansBeforeThisMonth,
   ] = await Promise.all([
     User.countDocuments({ isDeleted: false }),
     User.countDocuments({ isDeleted: false, createdAt: { $lt: thisMonth } }),
@@ -48,10 +50,11 @@ const getAdminOverview = async (): Promise<IAdminOverview> => {
     TransactionServices.getEarnings(),
     TransactionServices.getEarnings(thisMonth),
     TransactionServices.getEarnings(lastMonth, thisMonth),
+    CardAnalysis.countDocuments({}),
+    CardAnalysis.countDocuments({ createdAt: { $lt: thisMonth } }),
   ]);
 
-  const { activeSubscriptions, newThisMonth, newLastMonth, mrr } =
-    subscriberStats;
+  const { activeSubscriptions, newThisMonth, mrr } = subscriberStats;
 
   return {
     totalUsers: card(totalUsers, usersBeforeThisMonth),
@@ -59,7 +62,7 @@ const getAdminOverview = async (): Promise<IAdminOverview> => {
       activeSubscriptions,
       activeSubscriptions - newThisMonth,
     ),
-    newSubscribers: card(newThisMonth, newLastMonth),
+    totalScans: card(totalScans, scansBeforeThisMonth),
     // The card shows lifetime revenue; the delta compares this month's take
     // against last month's, which is the number that actually moves.
     totalEarnings: {

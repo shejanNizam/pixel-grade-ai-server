@@ -10,6 +10,10 @@ export const createTicketZodSchema = z.object({
     .string({ error: "Message must be string" })
     .min(1, { message: "Message cannot be empty." })
     .max(5000, { message: "Message cannot exceed 5000 characters." }),
+  /** Cloudflare Turnstile solution. Optional HERE so the schema still passes
+   *  when captcha is unconfigured; whether it is actually required is decided
+   *  in `verifyCaptcha`, which is the only place that knows if it's enabled. */
+  captchaToken: z.string().optional(),
 });
 
 export const addTicketMessageZodSchema = z.object({

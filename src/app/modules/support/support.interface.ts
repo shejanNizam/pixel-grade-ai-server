@@ -13,6 +13,7 @@ export interface ISupportTicketInitial {
   user: Types.ObjectId;
   subject: string;
   status: TicketStatus;
+  reopenCount?: number;
 }
 
 export type ISupportTicket = ISupportTicketInitial & Document;

@@ -1,5 +1,6 @@
 import httpStatus from "http-status";
 import AppError from "../../errorHelpers/AppError";
+import { CaptchaProvider } from "../../services/captcha.provider";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { NotifType } from "../notification/notification.interface";
 import { NotificationServices } from "../notification/notification.service";
@@ -9,12 +10,29 @@ import { SupportTicket, SupportTicketMessage } from "./support.model";
 
 const createTicket = async (
   userId: string,
-  payload: { subject: string; message: string },
+  payload: { subject: string; message: string; captchaToken?: string },
+  remoteIp?: string,
 ) => {
+  // Before anything is written. A ticket that reached the database and then
+  // failed the captcha would still have consumed the caller's one active slot.
+  await CaptchaProvider.verifyCaptcha(payload.captchaToken, remoteIp);
+
+  const activeTicket = await SupportTicket.findOne({
+    user: userId,
+    status: { $in: [TicketStatus.open, TicketStatus.answered] },
+  });
+  if (activeTicket) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "You already have an active support ticket. Please wait until it is resolved or closed before creating another.",
+    );
+  }
+
   const ticket = await SupportTicket.create({
     user: userId,
     subject: payload.subject,
     status: TicketStatus.open,
+    reopenCount: 0,
   });
 
   await SupportTicketMessage.create({
@@ -31,6 +49,38 @@ const createTicket = async (
     "New support ticket",
     payload.subject,
     `/admin/support/${String(ticket._id)}`,
+  );
+
+  return ticket;
+};
+
+const reopenTicket = async (ticketId: string, userId: string) => {
+  const ticket = await SupportTicket.findOne({ _id: ticketId, user: userId });
+  if (!ticket) throw new AppError(httpStatus.NOT_FOUND, "Ticket not found");
+
+  if (ticket.status !== TicketStatus.closed && ticket.status !== TicketStatus.resolved) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Only closed or resolved tickets can be reopened.",
+    );
+  }
+
+  if ((ticket.reopenCount ?? 0) >= 1) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "This ticket has already been reopened once. You cannot reopen it again.",
+    );
+  }
+
+  ticket.status = TicketStatus.open;
+  ticket.reopenCount = (ticket.reopenCount ?? 0) + 1;
+  await ticket.save();
+
+  await NotificationServices.createForStaff(
+    NotifType.support_ticket_reply,
+    "Ticket Reopened",
+    `User reopened ticket: ${ticket.subject}`,
+    `/admin/support/${ticketId}`,
   );
 
   return ticket;
@@ -175,6 +225,7 @@ const updateStatus = async (ticketId: string, status: TicketStatus) => {
 
 export const SupportServices = {
   createTicket,
+  reopenTicket,
   getMyTickets,
   getAllTickets,
   getTicket,

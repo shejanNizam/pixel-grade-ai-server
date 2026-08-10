@@ -8,7 +8,11 @@ import { SupportServices } from "./support.service";
 
 const createTicket = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
-  const result = await SupportServices.createTicket(userId as string, req.body);
+  const result = await SupportServices.createTicket(
+    userId as string,
+    req.body,
+    req.ip,
+  );
   sendResponse(res, {
     statusCode: httpStatus.CREATED,
     success: true,
@@ -89,8 +93,23 @@ const updateStatus = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const reopenTicket = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const result = await SupportServices.reopenTicket(
+    req.params.id as string,
+    userId as string,
+  );
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Ticket reopened successfully!",
+    data: result,
+  });
+});
+
 export const SupportControllers = {
   createTicket,
+  reopenTicket,
   getMyTickets,
   getAllTickets,
   getTicket,

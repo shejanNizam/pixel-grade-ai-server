@@ -120,6 +120,12 @@ const envSchema = z.object({
   /** What fills the slab's card window. Defaults to `scan` — the card that was
    *  actually graded. See SLAB_CARD_RENDER_MODES for what the others cost you. */
   SLAB_CARD_RENDER_MODE: z.enum(SLAB_CARD_RENDER_MODES).default("scan"),
+
+  /** Cloudflare Turnstile — bot protection on support ticket submission
+   *  (client, 2026-08-10). Optional so the app still boots before the keys are
+   *  provisioned; when the secret is absent, verification is SKIPPED and the
+   *  server warns loudly at startup. Set it in production. */
+  TURNSTILE_SECRET_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -146,7 +152,7 @@ const frontendPublicUrl =
   "*";
 
 export const configs = {
-  port: env.PORT,
+  port: process.env.PORT || env.PORT || "8080",
   database_url: env.DATABASE_URL,
   node_env: env.NODE_ENV,
 
@@ -230,5 +236,11 @@ export const configs = {
   STRIPE: {
     secret_key: env.STRIPE_SECRET_KEY,
     webhook_secret: env.STRIPE_WEBHOOK_SECRET,
+  },
+
+  CAPTCHA: {
+    turnstile_secret: env.TURNSTILE_SECRET_KEY,
+    /** Verification only runs when a secret is configured — see captcha.provider. */
+    enabled: Boolean(env.TURNSTILE_SECRET_KEY),
   },
 };

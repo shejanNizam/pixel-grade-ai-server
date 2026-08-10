@@ -13,6 +13,7 @@ import { OtpRoutes } from "../modules/otp/otp.route";
 import { PlanRoutes } from "../modules/plan/plan.route";
 import { PriceRoutes } from "../modules/price/price.route";
 import { SlabRoutes } from "../modules/slab/slab.route";
+import { SlabOrderRoutes } from "../modules/slabOrder/slabOrder.route";
 import { SubscriptionRoutes } from "../modules/subscription/subscription.route";
 import { SupportRoutes } from "../modules/support/support.route";
 import { TransactionRoutes } from "../modules/transaction/transaction.route";
@@ -32,6 +33,7 @@ const moduleRoutes = [
   { path: "/analysis", route: AnalysisRoutes },
   { path: "/grading", route: GradingRoutes },
   { path: "/slab", route: SlabRoutes },
+  { path: "/slab-order", route: SlabOrderRoutes },
   { path: "/collection", route: CollectionRoutes },
   { path: "/price", route: PriceRoutes },
   { path: "/subscription", route: SubscriptionRoutes },

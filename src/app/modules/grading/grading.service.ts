@@ -244,6 +244,108 @@ const getAllReports = async (query: Record<string, string>) => {
   return { data: reports, meta };
 };
 
+/**
+ * Resolves the Pixel ID printed on a slab to a PUBLIC, view-only summary.
+ *
+ * This is what the band's QR code points at, so it is deliberately
+ * unauthenticated — anyone handed the physical slab can check that the grade on
+ * it was really issued by us. That makes the shape of the response the whole
+ * security boundary:
+ *
+ *   • It is a fixed projection, never the report document. The raw model
+ *     output, the reasoning, the analysis, and the owner's email are all
+ *     training/internal data and must not appear here.
+ *   • It exposes the owner's `username` — the public handle already printed on
+ *     the band beside their avatar — and never the email behind it.
+ *   • It answers only for an exact Pixel ID. There is no listing endpoint, so
+ *     the ids cannot be enumerated without the slabs.
+ *
+ * Widening this projection is a privacy decision, not a formatting one.
+ */
+const verifyByPixelId = async (rawPixelId: string) => {
+  // The printed form is `PG-` + the last 10 hex chars of the report id,
+  // upper-cased. Accept it with or without the prefix and in any case.
+  const suffix = rawPixelId
+    .trim()
+    .replace(/^PG-/i, "")
+    .toLowerCase();
+
+  if (!/^[0-9a-f]{10}$/.test(suffix)) {
+    throw new AppError(httpStatus.BAD_REQUEST, "That is not a valid Pixel ID.");
+  }
+
+  // The id is a SUFFIX of the ObjectId, so the full id can't be reconstructed —
+  // the last 10 of the 24 hex characters have to be matched server-side.
+  const matches = await GradingReport.find({
+    $expr: {
+      $eq: [{ $substrCP: [{ $toString: "$_id" }, 14, 10] }, suffix],
+    },
+  })
+    .populate("card")
+    .populate("user", "username avatar")
+    .limit(2);
+
+  if (matches.length === 0) {
+    throw new AppError(
+      httpStatus.NOT_FOUND,
+      "No graded card matches that Pixel ID.",
+    );
+  }
+
+  // 10 hex characters make this effectively impossible, but returning an
+  // arbitrary one of two reports would be a wrong answer presented as a
+  // verification. Refuse instead.
+  if (matches.length > 1) {
+    logger.error("Pixel ID collision", { suffix });
+    throw new AppError(
+      httpStatus.CONFLICT,
+      "That Pixel ID is ambiguous. Please contact support.",
+    );
+  }
+
+  const report = matches[0];
+  const card = report.card as unknown as ReportCardInfo & {
+    language?: string;
+    releaseYear?: number;
+    officialImageUrl?: string;
+  };
+  const owner = report.user as unknown as {
+    username?: string;
+    avatar?: { url?: string };
+  };
+  // `timestamps: true` on the schema; IGradingReport doesn't declare them.
+  const { createdAt } = report as unknown as { createdAt?: Date };
+
+  return {
+    pixelId: `PG-${suffix.toUpperCase()}`,
+    grade: report.grade,
+    gradeLabel: report.gradeLabel,
+    confidence: report.confidence,
+    pixelVerified: report.pixelVerified,
+    scores: {
+      surface: report.scoreSurface,
+      corners: report.scoreCorners,
+      edges: report.scoreEdges,
+      centering: report.scoreCentering,
+    },
+    card: {
+      name: card?.name,
+      setExpansion: card?.setExpansion,
+      cardNumber: card?.cardNumber,
+      rarity: card?.rarity,
+      language: card?.language,
+      releaseYear: card?.releaseYear,
+      officialImageUrl: card?.officialImageUrl,
+    },
+    owner: {
+      username: owner?.username,
+      avatarUrl: owner?.avatar?.url,
+    },
+    gradedAt: createdAt,
+    modelVersion: report.modelVersion,
+  };
+};
+
 /** Whether this user's plan gets a clean PDF or a watermarked one. */
 const shouldWatermark = async (userId: string): Promise<boolean> => {
   const plan = await CreditServices.resolvePlan(userId);
@@ -272,4 +374,5 @@ export const GradingServices = {
   getAllReports,
   shouldWatermark,
   getReportPdf,
+  verifyByPixelId,
 };

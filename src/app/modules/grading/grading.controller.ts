@@ -81,10 +81,29 @@ const downloadReportPdf = catchAsync(async (req: Request, res: Response) => {
   res.send(pdf);
 });
 
+/**
+ * PUBLIC — no auth. This is what the slab's QR code resolves to, so a collector
+ * holding the physical card can check the grade without an account. The service
+ * returns a fixed view-only projection; see `verifyByPixelId`.
+ */
+const verifyPixelId = catchAsync(async (req: Request, res: Response) => {
+  const result = await GradingServices.verifyByPixelId(
+    req.params.pixelId as string,
+  );
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Grading report verified successfully!",
+    data: result,
+  });
+});
+
 export const GradingControllers = {
   gradeAnalysis,
   getMyReports,
   getReport,
   getAllReports,
   downloadReportPdf,
+  verifyPixelId,
 };

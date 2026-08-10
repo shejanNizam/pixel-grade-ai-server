@@ -63,32 +63,4 @@ slabLabelSchema.index({ report: 1, version: -1 });
 slabLabelSchema.index({ user: 1, createdAt: -1 });
 
 export const SlabLabel = model<ISlabLabel>("SlabLabel", slabLabelSchema);
-
-export const slabOrderSchema = new Schema<ISlabOrder>(
-  {
-    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    slabLabel: {
-      type: Schema.Types.ObjectId,
-      ref: "SlabLabel",
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: Object.values(SlabOrderStatus),
-      default: SlabOrderStatus.pending,
-    },
-    amount: { type: Number, required: true, min: 0 },
-    currency: { type: String, default: "USD" },
-    stripeRef: { type: String },
-    transaction: { type: Schema.Types.ObjectId, ref: "Transaction" },
-  },
-  {
-    timestamps: true,
-    versionKey: false,
-  },
-);
-
-slabOrderSchema.index({ user: 1, createdAt: -1 });
-slabOrderSchema.index({ status: 1 });
-
-export const SlabOrder = model<ISlabOrder>("SlabOrder", slabOrderSchema);
+export { SlabOrder } from "../slabOrder/slabOrder.model";

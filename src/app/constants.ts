@@ -16,16 +16,24 @@ export const excludeField = [
 // ---------------------------------------------------------------------------
 
 /** Credits burned by one grading scan. Mirrors CREDITS_PER_SCAN on the frontend. */
-export const CREDITS_PER_SCAN = 10;
+export const CREDITS_PER_SCAN = 5;
 
-/** Daily allowance for Free, re-granted by cron rather than accrued. No rollover. */
-export const FREE_DAILY_CREDITS = 20;
+/**
+ * Daily allowance for Free, re-granted by cron rather than accrued. No rollover.
+ *
+ * The client states Free in *scans* (5 per day, 2026-08-10), so this is
+ * 5 × CREDITS_PER_SCAN. Quote plan sizes in scans and store them in credits —
+ * writing the scan count straight into this field silently cuts the allowance
+ * by a factor of CREDITS_PER_SCAN.
+ */
+export const FREE_DAILY_CREDITS = 25;
 
 /**
  * How long a scan may sit unconfirmed before the sweeper refunds it.
  *
  * The debit happens up-front (it is what pays for the vendor's identification
- * call), but the client's rule is that 10 credits buys a *finished report*. A
+ * call), but the client's rule is that CREDITS_PER_SCAN buys a *finished
+ * report*. A
  * scan the user walked away from at the confirmation screen produced nothing,
  * so the credits go back. 30 minutes is well past any realistic "read the
  * candidates and pick one" pause, and short enough that a Free user gets their

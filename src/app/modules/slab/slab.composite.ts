@@ -248,7 +248,7 @@ export const buildTextLayer = (
     tracking: 1,
   });
 
-  const verifiedText = "✦ PIXEL VERIFIED";
+  const verifiedText = "PIXEL VERIFIED";
   const verifiedSize = fitToColumn(microSize, infoW, verifiedText.length, {
     tracking: 1,
     advance: CAPS_ADVANCE,
@@ -266,18 +266,18 @@ export const buildTextLayer = (
   const setLine = [text.year, text.setExpansion].filter(Boolean).join(" ");
   const numberLine = [text.cardNumber, text.language]
     .filter(Boolean)
-    .join("  ·  ");
+    .join("  |  ");
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .handle { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .initials { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .name   { font-family: Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
-    .meta   { font-family: Helvetica, Arial, sans-serif; fill: #D8D8D8; }
-    .micro  { font-family: Helvetica, Arial, sans-serif; fill: #9A9A9A; letter-spacing: 1px; }
-    .grade  { font-family: Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
-    .glabel { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
-    .verified { font-family: Helvetica, Arial, sans-serif; font-weight: 700; fill: #4FD1A5; letter-spacing: 1px; }
+    .handle { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
+    .initials { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
+    .name   { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
+    .meta   { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; fill: #D8D8D8; }
+    .micro  { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; fill: #9A9A9A; letter-spacing: 1px; }
+    .grade  { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 800; fill: #FFFFFF; }
+    .glabel { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
+    .verified { font-family: 'DejaVu Sans', 'Liberation Sans', 'Noto Sans CJK JP', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #4FD1A5; letter-spacing: 1px; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
@@ -309,7 +309,7 @@ export const buildTextLayer = (
           fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" />
   ${
     handleText
-      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.82}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.69}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
       : ""
   }
 
@@ -328,8 +328,8 @@ export const buildTextLayer = (
   <line x1="${gradeLeft - gap / 2}" y1="${labelY + labelHeight * 0.18}" x2="${gradeLeft - gap / 2}" y2="${labelY + labelHeight * 0.82}"
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
 
-  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.58}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
-  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.8}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
+  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.49}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
+  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.74}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
 
   <!-- QR over the Pixel ID (client, UI Feedback v1 edit #4 — the id used to sit
        in its own column to the left of the code). Both are centred on the
@@ -526,28 +526,10 @@ export const compositePng = async (
   backgroundBuffer: Buffer,
   cardBuffer: Buffer,
   text: LabelText,
-  options: { showGuides?: boolean; showCase?: boolean } = {},
+  options: { showGuides?: boolean; showCase?: boolean; excludeCardImage?: boolean } = {},
 ): Promise<Buffer> => {
   const background = await sharp(backgroundBuffer)
     .resize(layout.canvasWidth, layout.canvasHeight, { fit: "cover" })
-    .toBuffer();
-
-  const card = await sharp(cardBuffer)
-    // EXIF orientation FIRST. A phone photograph of a card is almost always
-    // stored landscape with an orientation tag telling the viewer to turn it;
-    // sharp ignores that tag unless asked, so without this a user's own scan
-    // composites into the window lying on its side.
-    .rotate()
-    .resize(layout.openingWidth, layout.openingHeight, {
-      fit: "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    // PNG is not cosmetic here — it is what makes the transparent background
-    // above mean anything. `toBuffer()` keeps the INPUT format, and a scan is a
-    // JPEG, which has no alpha channel: the letterbox padding gets flattened to
-    // solid black and prints as bars across the artwork instead of letting it
-    // show through. Any card image that is not exactly 65×90 hits this.
-    .png()
     .toBuffer();
 
   const layers: sharp.OverlayOptions[] = [
@@ -558,9 +540,31 @@ export const compositePng = async (
       left: layout.labelX,
       top: layout.labelY,
     },
-    { input: card, left: layout.openingX, top: layout.openingY },
-    { input: buildTextLayer(layout, text), left: 0, top: 0 },
   ];
+
+  if (!options.excludeCardImage) {
+    const card = await sharp(cardBuffer)
+      // EXIF orientation FIRST. A phone photograph of a card is almost always
+      // stored landscape with an orientation tag telling the viewer to turn it;
+      // sharp ignores that tag unless asked, so without this a user's own scan
+      // composites into the window lying on its side.
+      .rotate()
+      .resize(layout.openingWidth, layout.openingHeight, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      // PNG is not cosmetic here — it is what makes the transparent background
+      // above mean anything. `toBuffer()` keeps the INPUT format, and a scan is a
+      // JPEG, which has no alpha channel: the letterbox padding gets flattened to
+      // solid black and prints as bars across the artwork instead of letting it
+      // show through. Any card image that is not exactly 65×90 hits this.
+      .png()
+      .toBuffer();
+
+    layers.push({ input: card, left: layout.openingX, top: layout.openingY });
+  }
+
+  layers.push({ input: buildTextLayer(layout, text), left: 0, top: 0 });
 
   if (options.showCase !== false) {
     layers.push({ input: buildCaseLayer(layout), left: 0, top: 0 });
@@ -577,6 +581,41 @@ export const compositePng = async (
     .png()
     // Embeds the DPI in the file metadata so a print shop opening the PNG sees
     // 300 DPI rather than assuming 72 and scaling the slab wrong.
+    .withMetadata({ density: SLAB_EXPORT_DPI })
+    .toBuffer();
+};
+
+/**
+ * Builds high-resolution (300 DPI) label-only PNG for physical sticker/insert printing.
+ */
+export const buildLabelOnlyPng = async (
+  layout: SlabLayout,
+  text: LabelText,
+): Promise<Buffer> => {
+  const textSvg = buildTextLayer(layout, text);
+  const blackBg = await sharp({
+    create: {
+      width: layout.labelWidth,
+      height: layout.labelHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    },
+  })
+    .png()
+    .toBuffer();
+
+  const labelLayer = await sharp(textSvg)
+    .extract({
+      left: layout.labelX,
+      top: layout.labelY,
+      width: layout.labelWidth,
+      height: layout.labelHeight,
+    })
+    .toBuffer();
+
+  return sharp(blackBg)
+    .composite([{ input: labelLayer }])
+    .png()
     .withMetadata({ density: SLAB_EXPORT_DPI })
     .toBuffer();
 };

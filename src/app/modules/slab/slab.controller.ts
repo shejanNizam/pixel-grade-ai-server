@@ -94,11 +94,45 @@ const getLabel = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const exportPrintSlab = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const format = req.query.format === "png" ? "png" : "pdf";
+  const file = await SlabServices.exportPrintSlab(
+    userId as string,
+    req.params.id as string,
+    format,
+  );
+  res.setHeader("Content-Type", file.mimeType);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="slab_print_${req.params.id}.${file.extension}"`,
+  );
+  res.status(httpStatus.OK).send(file.buffer);
+});
+
+const exportLabelOnly = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const format = req.query.format === "png" ? "png" : "pdf";
+  const file = await SlabServices.exportLabelOnly(
+    userId as string,
+    req.params.id as string,
+    format,
+  );
+  res.setHeader("Content-Type", file.mimeType);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="label_only_${req.params.id}.${file.extension}"`,
+  );
+  res.status(httpStatus.OK).send(file.buffer);
+});
+
 export const SlabControllers = {
   createLabel,
   regenerate,
   selectVariant,
   preview,
+  exportPrintSlab,
+  exportLabelOnly,
   getMyLabels,
   getLabel,
 };

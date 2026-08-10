@@ -20,7 +20,7 @@ export interface IStatCard {
 export interface IAdminOverview {
   totalUsers: IStatCard;
   subscribedUsers: IStatCard;
-  newSubscribers: IStatCard;
+  totalScans: IStatCard;
   totalEarnings: IStatCard;
   /** Monthly recurring revenue — the monthly-equivalent of active subscriptions. */
   mrr: number;

@@ -175,5 +175,15 @@ router.patch(
  *         description: Label has no background yet
  */
 router.get("/:id/preview", checkAuth(...anyUser), SlabControllers.preview);
+router.get(
+  "/:id/export-print",
+  checkAuth(...anyUser),
+  SlabControllers.exportPrintSlab,
+);
+router.get(
+  "/:id/export-label",
+  checkAuth(...anyUser),
+  SlabControllers.exportLabelOnly,
+);
 
 export const SlabRoutes = router;

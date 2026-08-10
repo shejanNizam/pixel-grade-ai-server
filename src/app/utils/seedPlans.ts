@@ -1,4 +1,4 @@
-import { FREE_DAILY_CREDITS } from "../constants";
+import { CREDITS_PER_SCAN, FREE_DAILY_CREDITS } from "../constants";
 import {
   CreditInterval,
   IPlanInitial,
@@ -13,6 +13,12 @@ import { logger } from "./logger";
  *
  * `priceYearly` is the *effective monthly* rate on a yearly subscription; the
  * customer is charged that × 12 up front. Credits still refresh monthly.
+ *
+ * ⚠️ `creditAmount` is in CREDITS, but the client specifies plans in SCANS
+ * (2026-08-10: Free 5/day, Collector 300/month, Pro 1,200/month, Enterprise
+ * unlimited). Multiply by CREDITS_PER_SCAN. Pasting the scan count in here
+ * fails silently — the plan still works, it just sells a fifth of what was
+ * advertised.
  */
 const planCatalog: IPlanInitial[] = [
   {
@@ -39,7 +45,8 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For active collectors",
     priceMonthly: 10,
     priceYearly: 8,
-    creditAmount: 1500,
+    // 300 scans/month
+    creditAmount: 300 * CREDITS_PER_SCAN,
     creditInterval: CreditInterval.monthly,
     pixelscope: true,
     priceTracking: true,
@@ -60,7 +67,8 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For power users",
     priceMonthly: 25,
     priceYearly: 20,
-    creditAmount: 6000,
+    // 1,200 scans/month
+    creditAmount: 1200 * CREDITS_PER_SCAN,
     creditInterval: CreditInterval.monthly,
     pixelscope: true,
     priceTracking: true,
@@ -109,7 +117,14 @@ export const seedPlans = async () => {
   try {
     for (const plan of planCatalog) {
       const exists = await Plan.findOne({ name: plan.name });
-      if (exists) continue;
+      if (exists) {
+        if (exists.creditAmount !== plan.creditAmount) {
+          exists.creditAmount = plan.creditAmount;
+          await exists.save();
+          logger.info(`Updated creditAmount for plan: ${plan.name}`);
+        }
+        continue;
+      }
 
       await Plan.create(plan);
       logger.info(`Seeded plan: ${plan.name}`);

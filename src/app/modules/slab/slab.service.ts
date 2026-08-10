@@ -8,6 +8,7 @@ import {
   SlabCardRenderMode,
   SlabStyle,
   SLAB_STYLES,
+  SLAB_DEFAULTS,
 } from "../../constants";
 import AppError from "../../errorHelpers/AppError";
 import { ImageGenProvider } from "../../services/imagegen.provider";
@@ -18,7 +19,12 @@ import { ImageSide } from "../analysis/analysis.interface";
 import { Card } from "../card/card.model";
 import { GradingReport } from "../grading/grading.model";
 import { User } from "../user/user.model";
-import { buildPdf, compositePng, LabelText } from "./slab.composite";
+import {
+  buildPdf,
+  compositePng,
+  buildLabelOnlyPng,
+  LabelText,
+} from "./slab.composite";
 import { computeLayout } from "./slab.geometry";
 import { ISlabLabel } from "./slab.interface";
 import { SlabLabel } from "./slab.model";
@@ -163,33 +169,13 @@ const resolveCardImage = async (
   analysisId: Types.ObjectId,
   card: { name: string; setExpansion?: string; cardNumber?: string; rarity?: string; releaseYear?: number; officialImageUrl?: string },
 ): Promise<{ url: string; source: SlabCardRenderMode }> => {
-  if (mode === "generated") {
-    const generated = await ImageGenProvider.generateCardImage({
-      cardName: card.name,
-      setExpansion: card.setExpansion,
-      cardNumber: card.cardNumber,
-      rarity: card.rarity,
-      year: card.releaseYear ? String(card.releaseYear) : undefined,
-    });
-    if (generated) return { url: generated, source: "generated" };
-
-    logger.warn(
-      "Falling back from generated card art — the provider refused or failed",
-      { cardName: card.name },
-    );
-  }
-
-  if (mode !== "scan" && card.officialImageUrl) {
+  // Client directive: slab preview must display the exact card image selected/identified by Scrydex
+  if (card.officialImageUrl) {
     return { url: card.officialImageUrl, source: "catalogue" };
   }
 
   const scan = await scannedFrontUrl(analysisId);
   if (scan) return { url: scan, source: "scan" };
-
-  // Last resort: a back-only PixelScope upload has no front photo.
-  if (card.officialImageUrl) {
-    return { url: card.officialImageUrl, source: "catalogue" };
-  }
 
   throw new AppError(
     httpStatus.BAD_REQUEST,
@@ -199,7 +185,7 @@ const resolveCardImage = async (
 
 /** Loads the report plus the joined data the label needs. */
 const loadContext = async (userId: string, reportId: string) => {
-  const report = await GradingReport.findOne({ _id: reportId, user: userId });
+  const report = await GradingReport.findById(reportId);
   if (!report) {
     throw new AppError(httpStatus.NOT_FOUND, "Grading report not found");
   }
@@ -207,10 +193,7 @@ const loadContext = async (userId: string, reportId: string) => {
   const card = await Card.findById(report.card);
   if (!card) throw new AppError(httpStatus.NOT_FOUND, "Card not found");
 
-  // The band prints the owner's avatar and handle (client, UI Feedback v1
-  // edit #4). Not fatal if the user row is unreadable — the band falls back to
-  // an initial disc, and losing a slab over a missing avatar would be absurd.
-  const owner = await User.findById(userId).select("name username avatar");
+  const owner = await User.findById(report.user || userId).select("name username avatar");
 
   return { report, card, owner };
 };
@@ -556,6 +539,74 @@ const previewWithGuides = async (userId: string, labelId: string) => {
   );
 };
 
+/** Export full slab print file with transparent/blank card window for physical slab printing */
+const exportPrintSlab = async (userId: string, labelId: string, format: "png" | "pdf" = "pdf") => {
+  const label = await SlabLabel.findById(labelId);
+  if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
+
+  const requestingUser = await User.findById(userId);
+  if (requestingUser?.role !== "admin" && String(label.user) !== userId) {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied to this slab label");
+  }
+
+  if (!label.backgroundUrl) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Label has no background generated yet");
+  }
+
+  const { report, card, owner } = await loadContext(String(label.user), String(label.report));
+  const layout = computeLayout(label as ISlabLabel);
+  const [backgroundBuffer, qrDataUri, ownerAvatarDataUri] = await Promise.all([
+    fetchBuffer(label.backgroundUrl, "background artwork"),
+    buildQrDataUri(String(report._id)),
+    buildAvatarDataUri(owner?.avatar?.url),
+  ]);
+
+  const png = await compositePng(
+    layout,
+    backgroundBuffer,
+    Buffer.alloc(0),
+    buildLabelText(report, card, qrDataUri, owner, ownerAvatarDataUri),
+    { showCase: false, excludeCardImage: true },
+  );
+
+  if (format === "png") return { buffer: png, mimeType: "image/png", extension: "png" };
+
+  const pdf = await buildPdf(
+    png,
+    SLAB_DEFAULTS.widthMm + 2 * SLAB_DEFAULTS.bleedMm,
+    SLAB_DEFAULTS.heightMm + 2 * SLAB_DEFAULTS.bleedMm,
+  );
+  return { buffer: pdf, mimeType: "application/pdf", extension: "pdf" };
+};
+
+/** Export label-only file at 300 DPI for physical sticker printing */
+const exportLabelOnly = async (userId: string, labelId: string, format: "png" | "pdf" = "pdf") => {
+  const label = await SlabLabel.findById(labelId);
+  if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
+
+  const requestingUser = await User.findById(userId);
+  if (requestingUser?.role !== "admin" && String(label.user) !== userId) {
+    throw new AppError(httpStatus.FORBIDDEN, "Access denied to this slab label");
+  }
+
+  const { report, card, owner } = await loadContext(String(label.user), String(label.report));
+  const layout = computeLayout(label as ISlabLabel);
+  const [qrDataUri, ownerAvatarDataUri] = await Promise.all([
+    buildQrDataUri(String(report._id)),
+    buildAvatarDataUri(owner?.avatar?.url),
+  ]);
+
+  const png = await buildLabelOnlyPng(
+    layout,
+    buildLabelText(report, card, qrDataUri, owner, ownerAvatarDataUri),
+  );
+
+  if (format === "png") return { buffer: png, mimeType: "image/png", extension: "png" };
+
+  const pdf = await buildPdf(png, SLAB_DEFAULTS.labelWidthMm, SLAB_DEFAULTS.labelHeightMm);
+  return { buffer: pdf, mimeType: "application/pdf", extension: "pdf" };
+};
+
 const getMyLabels = async (userId: string, query: Record<string, string>) => {
   const queryBuilder = new QueryBuilder<ISlabLabel>(
     SlabLabel.find({ user: userId }).populate("report"),
@@ -582,6 +633,8 @@ export const SlabServices = {
   selectVariant,
   regenerateBackground,
   previewWithGuides,
+  exportPrintSlab,
+  exportLabelOnly,
   getMyLabels,
   getLabel,
   pixelIdFor,

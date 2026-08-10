@@ -14,6 +14,7 @@ export const supportTicketSchema = new Schema<ISupportTicket>(
       enum: Object.values(TicketStatus),
       default: TicketStatus.open,
     },
+    reopenCount: { type: Number, default: 0 },
   },
   {
     timestamps: true,

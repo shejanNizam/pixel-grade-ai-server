@@ -155,4 +155,10 @@ router.patch(
   SupportControllers.updateStatus,
 );
 
+router.patch(
+  "/:id/reopen",
+  checkAuth(...anyUser),
+  SupportControllers.reopenTicket,
+);
+
 export const SupportRoutes = router;

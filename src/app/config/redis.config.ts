@@ -1,6 +1,6 @@
 import { createClient } from "redis";
-import { configs } from "./index";
 import { logger } from "../utils/logger";
+import { configs } from "./index";
 
 /**
  * Only the event surface, deliberately. node-redis parameterises its client type
@@ -19,6 +19,12 @@ interface RedisLifecycleEvents {
  * pub/sub pair off the same options — three connections to one server, so they
  * must not be able to drift apart.
  */
+console.log("Redis connection options:", {
+  host: configs.REDIS.redis_host ?? "localhost",
+  port: parseInt(configs.REDIS.redis_port ?? "6379"),
+  username: configs.REDIS.redis_username ?? "default",
+  password: configs.REDIS.redis_password ?? "",
+});
 export const redisConnectionOptions = {
   username: configs.REDIS.redis_username ?? "default",
   password: configs.REDIS.redis_password ?? "",
@@ -50,6 +56,11 @@ export const attachRedisLogging = (
 
   client.on("error", (error: NodeJS.ErrnoException) => {
     const code = error?.code ?? error?.name ?? "unknown";
+    console.log(`${label} error`, {
+      code,
+      syscall: error?.syscall,
+      message: error?.message,
+    });
     if (code === lastErrorCode) return;
     lastErrorCode = code;
 
