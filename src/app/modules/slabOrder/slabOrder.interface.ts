@@ -22,8 +22,12 @@ export interface ISlabOrder {
   shippingAddress: IShippingAddress;
   quantity: number;
   unitPrice: number;
+  subtotal: number;
+  shippingFee: number;
+  taxAmount: number;
   totalAmount: number;
   amount?: number;
+  shippingCarrier?: string;
   paymentStatus: TPaymentStatus;
   orderStatus: TSlabOrderStatus;
   status?: string;
@@ -37,4 +41,6 @@ export interface ISlabOrderInitial {
   slabId: string;
   shippingAddress: IShippingAddress;
   quantity?: number;
+  shippingFee?: number;
+  taxAmount?: number;
 }

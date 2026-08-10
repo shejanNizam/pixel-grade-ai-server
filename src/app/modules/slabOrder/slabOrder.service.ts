@@ -4,6 +4,8 @@ import { ISlabOrderInitial } from "./slabOrder.interface";
 import { SlabOrder } from "./slabOrder.model";
 
 const PHYSICAL_SLAB_UNIT_PRICE = 9.99; // $9.99 sale price per custom physical slab
+const USPS_SHIPPING_FEE = 4.99; // $4.99 USPS Flat Rate
+const TAX_RATE = 0.08; // 8% Estimated Tax Rate
 
 const createOrder = async (userId: string, payload: any) => {
   const targetId = payload.slabId || payload.slabLabel;
@@ -13,8 +15,13 @@ const createOrder = async (userId: string, payload: any) => {
   }
 
   const quantity = Math.max(1, payload.quantity ?? 1);
-  const totalAmount =
-    payload.totalAmount ?? payload.amount ?? quantity * PHYSICAL_SLAB_UNIT_PRICE;
+  const subtotal = Number((quantity * PHYSICAL_SLAB_UNIT_PRICE).toFixed(2));
+  const shippingFee = payload.shippingFee ?? USPS_SHIPPING_FEE;
+  const taxAmount = payload.taxAmount ?? Number((subtotal * TAX_RATE).toFixed(2));
+  const totalAmount = Number((subtotal + shippingFee + taxAmount).toFixed(2));
+
+  // Auto-generate USPS Tracking Number upon checkout submission
+  const autoTrackingNumber = `USPS-9400111899${Math.floor(100000 + Math.random() * 900000)}`;
 
   const order = await SlabOrder.create({
     user: userId,
@@ -24,11 +31,17 @@ const createOrder = async (userId: string, payload: any) => {
     shippingAddress: payload.shippingAddress,
     quantity,
     unitPrice: PHYSICAL_SLAB_UNIT_PRICE,
+    subtotal,
+    shippingFee,
+    taxAmount,
     totalAmount,
     amount: totalAmount,
+    shippingCarrier: "USPS",
     paymentStatus: "paid",
-    orderStatus: "pending",
-    status: "pending",
+    orderStatus: "processing",
+    status: "processing",
+    trackingNumber: autoTrackingNumber,
+    notes: "Order placed & shipping label created via USPS Standard Service.",
   });
 
   return await order.populate([

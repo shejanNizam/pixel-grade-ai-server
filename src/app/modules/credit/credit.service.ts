@@ -9,6 +9,7 @@ import { Subscription } from "../subscription/subscription.model";
 import { SubStatus } from "../subscription/subscription.interface";
 import { CreditReason, ICreditLedger } from "./credit.interface";
 import { CreditLedger, CreditWallet } from "./credit.model";
+import { User } from "../user/user.model";
 
 /**
  * Every wallet mutation goes through here so no code path can move credits
@@ -95,6 +96,12 @@ const claimAnalysisMovement = async (
 /** Resolve the user's active plan, falling back to Free when they have no
  *  subscription at all — an unsubscribed account is a Free account. */
 const resolvePlan = async (userId: string) => {
+  const user = await User.findById(userId);
+  if (user?.role === "admin" || user?.role === "super_admin") {
+    const enterprise = await Plan.findOne({ name: PlanName.Enterprise });
+    if (enterprise) return enterprise;
+  }
+
   const subscription = await Subscription.findOne({
     user: userId,
     status: SubStatus.active,

@@ -23,8 +23,12 @@ const SlabOrderSchema = new Schema<ISlabOrder>(
     shippingAddress: { type: ShippingAddressSchema, required: true },
     quantity: { type: Number, required: true, default: 1, min: 1 },
     unitPrice: { type: Number, required: true, default: 9.99 },
+    subtotal: { type: Number, required: true, default: 9.99 },
+    shippingFee: { type: Number, required: true, default: 4.99 },
+    taxAmount: { type: Number, required: true, default: 0.8 },
     totalAmount: { type: Number, required: true },
     amount: { type: Number },
+    shippingCarrier: { type: String, default: "USPS" },
     paymentStatus: {
       type: String,
       enum: ["pending", "paid", "failed"],

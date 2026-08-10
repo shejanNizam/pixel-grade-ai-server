@@ -16,6 +16,7 @@ import { TxnStatus, TxnType } from "../transaction/transaction.interface";
 import { User } from "../user/user.model";
 import { BillingInterval, SubStatus } from "./subscription.interface";
 import { Subscription } from "./subscription.model";
+import { SlabOrder } from "../slabOrder/slabOrder.model";
 
 /**
  * What Stripe charges up front.
@@ -475,9 +476,16 @@ const getSubscriberStats = async () => {
 
   const stats = rows[0];
 
+  const slabRevenueAgg = await SlabOrder.aggregate<{ _id: null; total: number }>([
+    { $match: { paymentStatus: { $ne: "failed" } } },
+    { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+  ]);
+  const slabRevenue = slabRevenueAgg[0]?.total ?? 0;
+
   return {
     activeSubscriptions: stats?.activeSubscriptions ?? 0,
     mrr: Number((stats?.mrr ?? 0).toFixed(2)),
+    slabRevenue: Number((slabRevenue ?? 0).toFixed(2)),
     newThisMonth: stats?.newThisMonth ?? 0,
     newLastMonth: stats?.newLastMonth ?? 0,
   };
