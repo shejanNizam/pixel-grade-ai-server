@@ -82,6 +82,17 @@ const deleteMe = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const checkUsername = catchAsync(async (req: Request, res: Response) => {
+  const username = req.query.username as string;
+  const result = await UserServices.checkUsernameAvailability(username);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: result.message,
+    data: result,
+  });
+});
+
 export const UserControllers = {
   createUser,
   updateUser,
@@ -90,4 +101,5 @@ export const UserControllers = {
   getMe,
   deleteUser,
   deleteMe,
+  checkUsername,
 };

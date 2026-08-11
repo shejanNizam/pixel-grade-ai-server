@@ -41,6 +41,8 @@ router.post(
   UserControllers.createUser,
 );
 
+router.get("/check-username", UserControllers.checkUsername);
+
 /**
  * @swagger
  * /user/all-users:

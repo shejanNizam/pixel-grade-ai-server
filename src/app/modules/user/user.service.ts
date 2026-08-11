@@ -248,6 +248,30 @@ const deleteMe = async (userId: string) => {
   return user;
 };
 
+const checkUsernameAvailability = async (username: string) => {
+  if (!username) {
+    return { available: false, message: "Username is required" };
+  }
+  const normalised = username.trim().toLowerCase();
+  if (normalised.length < 3 || normalised.length > 24) {
+    return {
+      available: false,
+      message: "Username must be between 3 and 24 characters",
+    };
+  }
+  if (!/^[a-z0-9_]+$/.test(normalised)) {
+    return {
+      available: false,
+      message: "Letters, numbers, and underscores only",
+    };
+  }
+  const existing = await User.findOne({ username: normalised });
+  if (existing) {
+    return { available: false, message: "That username is already taken" };
+  }
+  return { available: true, message: "Username is available" };
+};
+
 export const UserServices = {
   createUser,
   updateUser,
@@ -257,4 +281,5 @@ export const UserServices = {
   deleteUser,
   deleteMe,
   generateUniqueUsername,
+  checkUsernameAvailability,
 };
