@@ -5,24 +5,24 @@ import sharp from "sharp";
 import { uploadBufferToCloudinary } from "../../config/cloudinary.config";
 import { configs } from "../../config/index";
 import {
+  SLAB_DEFAULTS,
+  SLAB_STYLES,
   SlabCardRenderMode,
   SlabStyle,
-  SLAB_STYLES,
-  SLAB_DEFAULTS,
 } from "../../constants";
 import AppError from "../../errorHelpers/AppError";
 import { ImageGenProvider } from "../../services/imagegen.provider";
 import { logger } from "../../utils/logger";
 import { QueryBuilder } from "../../utils/QueryBuilder";
-import { AnalysisImage } from "../analysis/analysis.model";
 import { ImageSide } from "../analysis/analysis.interface";
+import { AnalysisImage } from "../analysis/analysis.model";
 import { Card } from "../card/card.model";
 import { GradingReport } from "../grading/grading.model";
 import { User } from "../user/user.model";
 import {
+  buildLabelOnlyPng,
   buildPdf,
   compositePng,
-  buildLabelOnlyPng,
   LabelText,
 } from "./slab.composite";
 import { computeLayout } from "./slab.geometry";
