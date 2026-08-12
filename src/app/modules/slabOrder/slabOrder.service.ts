@@ -2,6 +2,8 @@ import AppError from "../../errorHelpers/AppError";
 import { SlabLabel } from "../slab/slab.model";
 import { ISlabOrderInitial } from "./slabOrder.interface";
 import { SlabOrder } from "./slabOrder.model";
+import { sendEmail } from "../../utils/sendEmail";
+import { logger } from "../../utils/logger";
 
 const PHYSICAL_SLAB_UNIT_PRICE = 9.99; // $9.99 sale price per custom physical slab
 const USPS_SHIPPING_FEE = 4.99; // $4.99 USPS Flat Rate
@@ -44,13 +46,41 @@ const createOrder = async (userId: string, payload: any) => {
     notes: "Order placed & shipping label created via USPS Standard Service.",
   });
 
-  return await order.populate([
+  const populatedOrder = await order.populate([
     { path: "user", select: "name email phone username avatar" },
     {
       path: "slab",
       populate: { path: "report", populate: { path: "card" } },
     },
   ]);
+
+  // Send automated HTML order & shipping confirmation email to customer
+  const userObj = populatedOrder.user as any;
+  const recipientEmail = userObj?.email;
+  if (recipientEmail) {
+    try {
+      await sendEmail({
+        to: recipientEmail,
+        subject: `Order & Shipping Confirmation - #${String(populatedOrder._id).slice(-8).toUpperCase()}`,
+        templateName: "orderConfirmation",
+        templateData: {
+          name: populatedOrder.shippingAddress?.fullName || userObj?.name || "Collector",
+          orderId: String(populatedOrder._id),
+          quantity: populatedOrder.quantity,
+          subtotal: populatedOrder.subtotal?.toFixed(2),
+          shippingFee: populatedOrder.shippingFee?.toFixed(2),
+          taxAmount: populatedOrder.taxAmount?.toFixed(2),
+          totalAmount: populatedOrder.totalAmount?.toFixed(2),
+          trackingNumber: populatedOrder.trackingNumber,
+          shippingAddress: populatedOrder.shippingAddress,
+        },
+      });
+    } catch (err) {
+      logger.error("Failed to send order confirmation email", { error: err });
+    }
+  }
+
+  return populatedOrder;
 };
 
 const getMyOrders = async (

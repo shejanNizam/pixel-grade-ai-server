@@ -108,10 +108,43 @@ const planCatalog: IPlanInitial[] = [
   },
 ];
 
+import { User } from "../modules/user/user.model";
+import { Subscription } from "../modules/subscription/subscription.model";
+import { BillingInterval, SubStatus } from "../modules/subscription/subscription.interface";
+
+export const grantAdminEnterpriseAccess = async () => {
+  try {
+    const adminEmails = ["admin@pixelgradeai.com", "superadmin@pixelgradeai.com"];
+    const enterprisePlan = await Plan.findOne({ name: PlanName.Enterprise });
+    if (!enterprisePlan) return;
+
+    for (const email of adminEmails) {
+      const user = await User.findOne({ email });
+      if (user) {
+        const existingSub = await Subscription.findOne({ user: user._id });
+        if (existingSub) {
+          existingSub.plan = enterprisePlan._id;
+          existingSub.status = SubStatus.active;
+          await existingSub.save();
+        } else {
+          await Subscription.create({
+            user: user._id,
+            plan: enterprisePlan._id,
+            status: SubStatus.active,
+            interval: BillingInterval.yearly,
+            currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          });
+        }
+        logger.info(`Granted Enterprise access to admin: ${email}`);
+      }
+    }
+  } catch (error) {
+    logger.error("Failed to grant admin enterprise access", { error });
+  }
+};
+
 /**
- * Inserts any missing tier. Deliberately does NOT overwrite an existing plan —
- * admins edit prices and features through the panel, and a redeploy must not
- * silently revert their changes back to these defaults.
+ * Inserts any missing tier and grants admin Enterprise access.
  */
 export const seedPlans = async () => {
   try {
@@ -129,6 +162,8 @@ export const seedPlans = async () => {
       await Plan.create(plan);
       logger.info(`Seeded plan: ${plan.name}`);
     }
+
+    await grantAdminEnterpriseAccess();
   } catch (error) {
     logger.error("Failed to seed plans", { error });
   }

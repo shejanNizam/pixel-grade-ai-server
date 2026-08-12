@@ -275,14 +275,14 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .handle { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .initials { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .name   { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Serif', Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
-    .meta   { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; fill: #D8D8D8; }
-    .micro  { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; fill: #9A9A9A; letter-spacing: 1px; }
-    .grade  { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Serif', Georgia, 'Times New Roman', serif; font-weight: 700; fill: #FFFFFF; }
-    .glabel { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
-    .verified { font-family: 'Noto Sans CJK JP', 'Noto Sans JP', 'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; fill: #4FD1A5; letter-spacing: 1px; }
+    .handle { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
+    .initials { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
+    .name   { font-family: serif, 'DejaVu Serif', 'Liberation Serif', Georgia, 'Times New Roman', sans-serif; font-weight: 700; fill: #FFFFFF; }
+    .meta   { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; fill: #D8D8D8; }
+    .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; fill: #9A9A9A; letter-spacing: 1px; }
+    .grade  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 800; fill: #FFFFFF; }
+    .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
+    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #4FD1A5; letter-spacing: 1px; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
