@@ -21,7 +21,7 @@ The REST API backend for Pixel Grade AI, built with **Node.js**, **Express**, **
 | Docs | Swagger (OpenAPI 3.0) |
 | Security | Helmet, Bcrypt, rate limiting, XSS + Mongo sanitization |
 | Testing | Jest + Supertest |
-| Deployment | Vercel (serverless) / Docker |
+| Deployment | AWS Elastic Beanstalk / Docker / Vercel |
 
 ---
 
