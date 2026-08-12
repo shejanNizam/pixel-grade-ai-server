@@ -74,51 +74,62 @@ const identify = async (
   imageUrls: string[],
   game: CardGame,
 ): Promise<IdentificationResult> => {
-  // Dev-only escape hatch — see scrydex.mock.ts. Checked before the credential
-  // check so a mocked dev environment needs no credentials at all.
   if (ScrydexMock.visionEnabled()) return ScrydexMock.identify(game);
 
-  const imageUrl = imageUrls[0];
-  if (!imageUrl) {
+  if (!imageUrls.length) {
     throw new AppError(httpStatus.BAD_REQUEST, "No image to identify.");
   }
 
-  // Throws a game-specific 501 for anything Scrydex cannot serve, so a user who
-  // picked Yu-Gi-Oh! is told that rather than shown a raw 404.
   const games = [requireVisionSlug(game)];
+  const maxAttempts = Math.min(imageUrls.length, 3);
+  let lastResult: IdentificationResult = { candidates: [] };
 
-  const payload = await request<ScrydexVisionResponse>(
-    "/vision/v1/cards/identify",
-    {
-      method: "POST",
-      body: { image_url: imageUrl, games },
-      vision: true,
-      operation: "Card identification",
-    },
-  );
+  for (let i = 0; i < maxAttempts; i++) {
+    const imageUrl = imageUrls[i];
+    try {
+      const payload = await request<ScrydexVisionResponse>(
+        "/vision/v1/cards/identify",
+        {
+          method: "POST",
+          body: { image_url: imageUrl, games },
+          vision: true,
+          operation: "Card identification",
+        },
+      );
 
-  const analysis = payload.data?.analysis;
-  const candidates = toIdentifiedCards(
-    payload.data?.matches ?? [],
-    game,
-    analysis?.language_code,
-  );
+      const analysis = payload.data?.analysis;
+      const candidates = toIdentifiedCards(
+        payload.data?.matches ?? [],
+        game,
+        analysis?.language_code,
+      );
 
-  const graded = analysis?.graded_details;
+      const graded = analysis?.graded_details;
+      lastResult = {
+        candidates,
+        languageCode: analysis?.language_code,
+        gradedDetails: graded?.company
+          ? {
+              company: graded.company,
+              gradeLabel: graded.grade_label,
+              gradeNumber: graded.grade_number,
+              year: graded.year,
+              cert: graded.cert,
+            }
+          : undefined,
+      };
 
-  return {
-    candidates,
-    languageCode: analysis?.language_code,
-    gradedDetails: graded?.company
-      ? {
-          company: graded.company,
-          gradeLabel: graded.grade_label,
-          gradeNumber: graded.grade_number,
-          year: graded.year,
-          cert: graded.cert,
-        }
-      : undefined,
-  };
+      if (candidates.length > 0) {
+        return lastResult;
+      }
+    } catch (err) {
+      if (i === maxAttempts - 1 && lastResult.candidates.length === 0) {
+        throw err;
+      }
+    }
+  }
+
+  return lastResult;
 };
 
 export const IdentificationProvider = {
