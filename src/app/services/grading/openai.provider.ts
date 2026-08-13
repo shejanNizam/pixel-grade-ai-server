@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import OpenAI from "openai";
 import { configs } from "../../config/index";
 import AppError from "../../errorHelpers/AppError";
+import { logger } from "../../utils/logger";
 import {
   buildUserPrompt,
   gradingSchema,
@@ -48,31 +49,40 @@ const grade = async (input: GradingInput): Promise<GradingOutput> => {
     throw new AppError(httpStatus.BAD_REQUEST, "No images to grade");
   }
 
-  const response = await getClient().chat.completions.create({
-    model: configs.GRADING.openai_model,
-    max_completion_tokens: 4096,
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "card_grade",
-        strict: true,
-        schema: gradingSchema as unknown as Record<string, unknown>,
+  let response: OpenAI.Chat.Completions.ChatCompletion;
+  try {
+    response = await getClient().chat.completions.create({
+      model: configs.GRADING.openai_model,
+      max_completion_tokens: 4096,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "card_grade",
+          strict: true,
+          schema: gradingSchema as unknown as Record<string, unknown>,
+        },
       },
-    },
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      {
-        role: "user",
-        content: [
-          ...input.imageUrls.map(
-            (url) =>
-              ({ type: "image_url", image_url: { url } }) as const,
-          ),
-          { type: "text", text: buildUserPrompt(input) },
-        ],
-      },
-    ],
-  });
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: [
+            ...input.imageUrls.map(
+              (url) =>
+                ({ type: "image_url", image_url: { url } }) as const,
+            ),
+            { type: "text", text: buildUserPrompt(input) },
+          ],
+        },
+      ],
+    });
+  } catch (err: unknown) {
+    logger.error("OpenAI API call failed during grading:", err);
+    throw new AppError(
+      httpStatus.SERVICE_UNAVAILABLE,
+      "The AI grading service is temporarily unavailable. Please verify backend API credentials or try again shortly.",
+    );
+  }
 
   const choice = response.choices[0];
 
