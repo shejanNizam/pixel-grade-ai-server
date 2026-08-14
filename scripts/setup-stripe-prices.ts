@@ -14,22 +14,40 @@ import Stripe from "stripe";
 
 const { STRIPE_SECRET_KEY, DATABASE_URL } = process.env;
 
-if (!STRIPE_SECRET_KEY?.startsWith("sk_test_")) {
+const isTestKey = STRIPE_SECRET_KEY?.startsWith("sk_test_");
+const isLiveKey =
+  STRIPE_SECRET_KEY?.startsWith("sk_live_") ||
+  STRIPE_SECRET_KEY?.startsWith("rk_live_");
+
+if (!isTestKey && !isLiveKey) {
   throw new Error(
-    "Refusing to run: STRIPE_SECRET_KEY is missing or is not a test key (sk_test_...).",
+    "Refusing to run: STRIPE_SECRET_KEY is missing or is not a valid Stripe key.",
+  );
+}
+if (isLiveKey) {
+  console.warn(
+    "⚠️  Running with a LIVE Stripe key — real products/prices will be created!",
   );
 }
 if (!DATABASE_URL) throw new Error("DATABASE_URL is missing.");
 
-const stripe = new Stripe(STRIPE_SECRET_KEY);
+const stripe = new Stripe(STRIPE_SECRET_KEY as string);
 
 /** Charge = effective monthly rate for month, and that rate × 12 for year —
  *  matching amountFor() in subscription.service.ts. */
 const PAID_PLANS = ["Collector", "Pro", "Enterprise"] as const;
 
+const force = process.argv.includes("--force");
+
 async function main() {
-  await mongoose.connect(DATABASE_URL!);
-  const plans = mongoose.connection.db!.collection("plans");
+  await mongoose.connect(String(DATABASE_URL));
+
+  const db = mongoose.connection.db;
+  if (!db) {
+    throw new Error("MongoDB connection is not established.");
+  }
+
+  const plans = db.collection("plans");
 
   for (const name of PAID_PLANS) {
     const plan = await plans.findOne({ name });
@@ -37,8 +55,10 @@ async function main() {
       console.log(`- ${name}: no plan document found, skipping`);
       continue;
     }
-    if (plan.stripePriceIdMonth) {
-      console.log(`- ${name}: already configured, skipping`);
+    if (plan.stripePriceIdMonth && !force) {
+      console.log(
+        `- ${name}: already configured, skipping (use --force to overwrite)`,
+      );
       continue;
     }
 

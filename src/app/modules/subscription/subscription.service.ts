@@ -11,12 +11,12 @@ import { NotifType } from "../notification/notification.interface";
 import { NotificationServices } from "../notification/notification.service";
 import { PlanName } from "../plan/plan.interface";
 import { Plan } from "../plan/plan.model";
-import { Transaction } from "../transaction/transaction.model";
+import { SlabOrder } from "../slabOrder/slabOrder.model";
 import { TxnStatus, TxnType } from "../transaction/transaction.interface";
+import { Transaction } from "../transaction/transaction.model";
 import { User } from "../user/user.model";
 import { BillingInterval, SubStatus } from "./subscription.interface";
 import { Subscription } from "./subscription.model";
-import { SlabOrder } from "../slabOrder/slabOrder.model";
 
 /**
  * What Stripe charges up front.
@@ -476,7 +476,10 @@ const getSubscriberStats = async () => {
 
   const stats = rows[0];
 
-  const slabRevenueAgg = await SlabOrder.aggregate<{ _id: null; total: number }>([
+  const slabRevenueAgg = await SlabOrder.aggregate<{
+    _id: null;
+    total: number;
+  }>([
     { $match: { paymentStatus: { $ne: "failed" } } },
     { $group: { _id: null, total: { $sum: "$totalAmount" } } },
   ]);
