@@ -197,11 +197,17 @@ const googleCallbackControll = catchAsync(
 
     const rawState = (req.query.state as string) || "/";
 
+    // `state` round-trips through Google untouched, so it is attacker-supplied
+    // by the time it gets here. Both checks are load-bearing: the regex alone
+    // accepts "//evil.com" (a leading "/" followed by more "/"), which the
+    // browser resolves as a protocol-relative URL — an open redirect out of our
+    // own OAuth return. `isRelative` is what rejects it.
     const isRelative = rawState.startsWith("/") && !rawState.startsWith("//");
 
-    const safePath = /^\/[a-zA-Z0-9\-._~:@!$&'()*+,;=%/?#]*$/.test(rawState)
-      ? rawState
-      : "/";
+    const safePath =
+      isRelative && /^\/[a-zA-Z0-9\-._~:@!$&'()*+,;=%/?#]*$/.test(rawState)
+        ? rawState
+        : "/";
 
     res.redirect(`${configs.frontend_url}${safePath}`);
   },
