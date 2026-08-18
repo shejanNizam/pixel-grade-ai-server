@@ -289,8 +289,8 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     .handle { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
     .initials { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
     .name   { font-family: serif, 'DejaVu Serif', 'Liberation Serif', Georgia, 'Times New Roman', sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .meta   { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; fill: #D8D8D8; }
-    .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; fill: #9A9A9A; letter-spacing: 1px; }
+    .meta   { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
+    .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
     .grade  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 800; fill: #FFFFFF; }
     .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
     .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #A855F7; letter-spacing: 1px; }
@@ -559,7 +559,27 @@ export const compositePng = async (
     },
   ];
 
-  if (!options.excludeCardImage) {
+  if (options.excludeCardImage) {
+    // Punch a 100% transparent opening hole through the background artwork
+    // so the back of the physical card remains visible through transparent slab.
+    const hole = await sharp({
+      create: {
+        width: layout.openingWidth,
+        height: layout.openingHeight,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 255 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    layers.push({
+      input: hole,
+      left: layout.openingX,
+      top: layout.openingY,
+      blend: "dest-out",
+    });
+  } else {
     const card = await sharp(cardBuffer)
       .rotate()
       .resize(layout.openingWidth, layout.openingHeight, {
