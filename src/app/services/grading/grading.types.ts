@@ -250,9 +250,9 @@ export const gradingSchema = {
  */
 export const SYSTEM_PROMPT = `You are a professional trading card grader assessing physical condition from photographs. Work through the following steps in order.
 
-STEP 1 — ASSESS THE PHOTOGRAPHS FIRST, BEFORE THE CARD.
-Judge focus, lighting, glare, cropping, and coverage. Record this as imageQuality.
-List every problem you find. This is about the PHOTOS, not the card.
+STEP 1 — ASSESS ALL PHOTOGRAPHS FIRST, INCLUDING CLOSE-UP AND MACRO SHOTS.
+Judge focus, lighting, glare, cropping, and coverage across ALL provided images. Record this as imageQuality.
+List every problem you find. Note that the images may include main front/back overview shots as well as close-up/macro images focusing on specific corners, edges, or surface areas. Inspect EVERY image thoroughly. If a macro shot reveals defects (such as whitening, scratches, nicks, or creasing), those defects MUST be evaluated and counted in your grading sub-scores.
 
 STEP 2 — ORIENT.
 Account for perspective: a card photographed at an angle has borders that appear
@@ -269,7 +269,7 @@ STEP 4-6 — GRADE CORNERS, EDGES, AND SURFACE INDEPENDENTLY, each 0-10.
 - Corners: sharpness, fraying, rounding, dings, bends
 - Edges: chipping, whitening, nicks, roughness
 - Surface: scratches, print lines, whitening, gloss, indentations, stains, texture
-Score each on its own evidence. Do not let a weak category drag a clean one down.
+Score each on its own evidence across all images (both full views and macro shots). Do not let a weak category drag a clean one down, but do NOT ignore defects visible in macro images.
 
 Use these anchors so the same condition scores the same every time. Pick the
 lowest band the card fully satisfies — if it sits between two, take the lower.
@@ -298,7 +298,7 @@ SURFACE
   5-6 Multiple scratches, a crease, a dent, staining, or notable gloss loss.
   1-4 Heavy creasing, water damage, writing, tearing, or peeling.
 
-Be fair and encouraging: cards in clean, good condition with sharp corners, clean surfaces, and straight edges should be awarded 9s (MINT) and 10s (GEM-MINT). Do not penalize cards for camera lighting, minor reflections, or photo resolution artifacts.
+Be fair and objective: cards in clean, good condition with sharp corners, clean surfaces, and straight edges should be awarded 9s (MINT) and 10s (GEM-MINT). However, if close-up images reveal damage, apply appropriate sub-score deductions. Do not penalize cards for camera lighting, minor reflections, or photo resolution artifacts.
 
 STEP 7 — LIST EVERY DEFECT, AND EXPLAIN IT.
 Each one gets a category, a severity, a location, and a description in
@@ -359,7 +359,8 @@ export const buildUserPrompt = (input: GradingInput): string =>
   [
     input.cardName ? `Card: ${input.cardName}` : null,
     input.cardSet ? `Set: ${input.cardSet}` : null,
-    `Images provided: ${input.imageUrls.length}`,
+    `Total Images Provided: ${input.imageUrls.length}`,
+    "Note on images: The provided images include overall views (front and back) as well as close-up macro inspection photos of corners, edges, and surface. Inspect ALL images carefully.",
     "",
     "Grade this card from the images above.",
   ]
@@ -458,22 +459,15 @@ export const normalise = (
   const scoreEdges = clamp(Number(parsed.scoreEdges), 0, 10);
   const scoreCentering = clamp(Number(parsed.scoreCentering), 0, 10);
 
-  const subgradeAvg = (scoreSurface + scoreCorners + scoreEdges + scoreCentering) / 4;
+  const minSubscore = Math.min(scoreSurface, scoreCorners, scoreEdges, scoreCentering);
   const parsedGrade = clamp(Number(parsed.grade), 0, 10);
 
-  // Ensure overall grade is not harshly penalized below subgrade average,
-  // and give good-condition cards (subgradeAvg >= 8.5) a generous chance at 9s and 10s.
+  // Overall grade is capped by lowest subscore (Step 8 of grading rules).
   let finalGrade = parsedGrade;
-
-  if (parsedGrade < subgradeAvg) {
-    finalGrade = Math.round(subgradeAvg * 2) / 2;
+  if (minSubscore > 0 && finalGrade > minSubscore + 2.0) {
+    finalGrade = Math.round((minSubscore + 2.0) * 2) / 2;
   }
-
-  if (subgradeAvg >= 9.25 && finalGrade < 9.5) {
-    finalGrade = Math.min(10, Math.round((subgradeAvg + 0.25) * 2) / 2);
-  } else if (subgradeAvg >= 8.5 && finalGrade < 9.0) {
-    finalGrade = 9.0;
-  }
+  finalGrade = clamp(finalGrade, 0, 10);
 
   const finalGradeLabel = getGradeLabel(finalGrade);
 

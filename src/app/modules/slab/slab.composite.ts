@@ -268,7 +268,18 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   );
   const metaChars = Math.max(6, Math.floor(infoW / (metaSize * 0.55)));
 
-  const setLine = [text.year, text.setExpansion].filter(Boolean).join(" ");
+  const rawSetLine = [text.year, text.setExpansion].filter(Boolean).join(" ");
+  let setLine1 = rawSetLine;
+  let setLine2 = "";
+  if (rawSetLine.length > metaChars && rawSetLine.includes(" ")) {
+    const splitIdx = rawSetLine.lastIndexOf(" ", metaChars);
+    const safeSplit = splitIdx > 0 ? splitIdx : rawSetLine.indexOf(" ");
+    if (safeSplit > 0) {
+      setLine1 = rawSetLine.slice(0, safeSplit);
+      setLine2 = rawSetLine.slice(safeSplit + 1);
+    }
+  }
+
   const numberLine = [text.cardNumber, text.language]
     .filter(Boolean)
     .join("  ·  ");
@@ -282,7 +293,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; fill: #9A9A9A; letter-spacing: 1px; }
     .grade  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 800; fill: #FFFFFF; }
     .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
-    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #4FD1A5; letter-spacing: 1px; }
+    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #A855F7; letter-spacing: 1px; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
@@ -314,7 +325,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
           fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" />
   ${
     handleText
-      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.82}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.77}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
       : ""
   }
 
@@ -322,19 +333,20 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
 
   <text x="${infoX}" y="${labelY + labelHeight * 0.3}" class="name" font-size="${nameSize}">${esc(fit(text.cardName, nameChars))}</text>
-  ${setLine ? `<text x="${infoX}" y="${labelY + labelHeight * 0.5}" class="meta" font-size="${metaSize}">${esc(fit(setLine, metaChars))}</text>` : ""}
-  ${numberLine ? `<text x="${infoX}" y="${labelY + labelHeight * 0.68}" class="micro" font-size="${microSize}">${esc(fit(numberLine, metaChars))}</text>` : ""}
-  ${
-    text.pixelVerified
-      ? `<text x="${infoX}" y="${labelY + labelHeight * 0.87}" class="verified" font-size="${verifiedSize}">${verifiedText}</text>`
-      : ""
-  }
+  ${setLine1 ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.44 : labelHeight * 0.48)}" class="meta" font-size="${metaSize}">${esc(fit(setLine1, metaChars))}</text>` : ""}
+  ${setLine2 ? `<text x="${infoX}" y="${labelY + labelHeight * 0.60}" class="meta" font-size="${metaSize}">${esc(fit(setLine2, metaChars))}</text>` : ""}
+  ${numberLine ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.76 : labelHeight * 0.68)}" class="micro" font-size="${metaSize * 0.9}">${esc(fit(numberLine, metaChars))}</text>` : ""}
 
   <line x1="${gradeLeft - gap / 2}" y1="${labelY + labelHeight * 0.18}" x2="${gradeLeft - gap / 2}" y2="${labelY + labelHeight * 0.82}"
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
 
-  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.58}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
-  <text x="${gradeCentre}" y="${labelY + labelHeight * 0.8}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
+  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.46 : labelHeight * 0.58)}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
+  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.65 : labelHeight * 0.8)}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
+  ${
+    text.pixelVerified
+      ? `<text x="${gradeCentre}" y="${labelY + labelHeight * 0.83}" class="verified" font-size="${verifiedSize}" text-anchor="middle">✓ PIXEL VERIFIED</text>`
+      : ""
+  }
 
   <!-- QR over the Pixel ID (client, UI Feedback v1 edit #4 — the id used to sit
        in its own column to the left of the code). Both are centred on the

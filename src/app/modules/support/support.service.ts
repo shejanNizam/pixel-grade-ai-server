@@ -164,10 +164,13 @@ const addMessage = async (
     throw new AppError(httpStatus.FORBIDDEN, "You are not authorized");
   }
 
-  if (ticket.status === TicketStatus.closed) {
+  if (
+    ticket.status === TicketStatus.closed ||
+    ticket.status === TicketStatus.resolved
+  ) {
     throw new AppError(
       httpStatus.BAD_REQUEST,
-      "This ticket is closed. Open a new ticket to continue.",
+      "This ticket is resolved. You cannot reply to a resolved support ticket.",
     );
   }
 

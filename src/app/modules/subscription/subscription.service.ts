@@ -75,19 +75,28 @@ const createCheckoutSession = async (
   const user = await User.findById(userId);
   if (!user) throw new AppError(httpStatus.NOT_FOUND, "User not found");
 
-  const session = await getStripe().checkout.sessions.create({
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    customer_email: user.email,
-    // The webhook is the only place a subscription is actually activated, and
-    // it needs to know who and what — the client never gets to assert either.
-    metadata: {
-      userId: String(user._id),
-      planId: String(plan._id),
-      interval,
-    },
-    ...returnUrls(),
-  });
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await getStripe().checkout.sessions.create({
+      mode: "subscription",
+      line_items: [{ price: priceId, quantity: 1 }],
+      customer_email: user.email,
+      // The webhook is the only place a subscription is actually activated, and
+      // it needs to know who and what — the client never gets to assert either.
+      metadata: {
+        userId: String(user._id),
+        planId: String(plan._id),
+        interval,
+      },
+      ...returnUrls(),
+    });
+  } catch (stripeErr: unknown) {
+    logger.error("Stripe checkout session creation failed:", stripeErr);
+    throw new AppError(
+      httpStatus.SERVICE_UNAVAILABLE,
+      "Payment checkout is temporarily unavailable. Please try again shortly or contact support.",
+    );
+  }
 
   return { checkoutUrl: session.url, sessionId: session.id };
 };

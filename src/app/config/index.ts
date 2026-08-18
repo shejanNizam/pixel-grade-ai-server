@@ -110,8 +110,10 @@ const envSchema = z.object({
    *  v3 (2026-08-06): per-band scale anchors for corners/edges/surface, a
    *  required self-consistency pass, and defect descriptions that must state
    *  what the defect is, how visible it is, and what it cost the grade.
+   *  v4 (2026-08-18): multi-image macro analysis rules, strict subscore capping,
+   *  and fix for artificial grade boosting on damaged cards.
    *  Reports keep the grade they were issued under — none are back-filled. */
-  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v3"),
+  GRADING_MODEL_VERSION: z.string().default("pixelgrade-v4"),
 
   // Slab background generation — vendor unconfirmed.
   IMAGEGEN_API_KEY: z.string().optional(),
