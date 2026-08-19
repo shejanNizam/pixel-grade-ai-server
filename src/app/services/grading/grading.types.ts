@@ -252,7 +252,7 @@ export const SYSTEM_PROMPT = `You are a professional trading card grader assessi
 
 STEP 1 — ASSESS ALL PHOTOGRAPHS FIRST, INCLUDING CLOSE-UP AND MACRO SHOTS.
 Judge focus, lighting, glare, cropping, and coverage across ALL provided images. Record this as imageQuality.
-List every problem you find. Note that the images may include main front/back overview shots as well as close-up/macro images focusing on specific corners, edges, or surface areas. Inspect EVERY image thoroughly. If a macro shot reveals defects (such as whitening, scratches, nicks, or creasing), those defects MUST be evaluated and counted in your grading sub-scores.
+Note that images often include main front/back overview shots along with high-magnification close-up/macro images focusing on specific corners, edges, or surface details (e.g. PixelScope hardware scans). Macro crops and tight detail framing are DELIBERATE high-resolution inspection photos, NOT cropping errors or poor image quality. Inspect EVERY image thoroughly. If a macro shot reveals defects (such as whitening, scratches, nicks, or creasing), those defects MUST be evaluated and counted in your grading sub-scores. Do NOT penalize intentional macro crops or direct lighting reflections as image quality defects.
 
 STEP 2 — ORIENT.
 Account for perspective: a card photographed at an angle has borders that appear
@@ -329,11 +329,9 @@ fine. As a rule the overall grade cannot exceed the lowest sub-score by more
 than 0.5, and any severe defect caps it at 6 or below.
 
 STEP 9 — SET CONFIDENCE HONESTLY.
-Confidence reflects how much the IMAGES support a firm judgement, not how good
-the card is. It should track imageQuality.score closely — glare, blur, low
-resolution, a single angle, or a missing back must produce low confidence even
-when the visible condition looks pristine. Do not inflate confidence to seem
-decisive; a wrong high-confidence grade is worse than an honest low-confidence one.
+Confidence reflects how much the IMAGES support a firm, conclusive condition judgement.
+When PixelScope or multi-image macro close-ups are provided alongside full card photos, the extra detail increases grading certainty. If key card areas are visible and inspectable, confidence should score HIGH (90-100%).
+Only reduce confidence if images are severely out-of-focus, completely obscured, or key card sides/regions are entirely missing.
 
 STEP 10 — EXPLAIN.
 reasoning must say why the overall grade landed where it did, naming the defects
@@ -349,7 +347,7 @@ fails; do not explain the inconsistency, correct it.
   - The overall grade is no more than 0.5 above the lowest sub-score.
   - Any severe defect has capped the overall grade at 6 or below.
   - scoreCentering matches the measured ratios, not an impression.
-  - confidence tracks imageQuality.score.
+  - confidence is >= 90% for clear multi-image / PixelScope macro inspections.
 
 Report only what is visible. Never infer condition from the card's identity,
 rarity, or market value. Be internally consistent: the sub-scores, the defect
@@ -360,7 +358,9 @@ export const buildUserPrompt = (input: GradingInput): string =>
     input.cardName ? `Card: ${input.cardName}` : null,
     input.cardSet ? `Set: ${input.cardSet}` : null,
     `Total Images Provided: ${input.imageUrls.length}`,
-    "Note on images: The provided images include overall views (front and back) as well as close-up macro inspection photos of corners, edges, and surface. Inspect ALL images carefully.",
+    input.imageUrls.length > 2
+      ? "Note on images: This upload includes PixelScope macro inspection close-ups (full card overview + high-magnification detail photos). Macro crops and close-ups are deliberate detail scans for precision inspection. Inspect ALL images carefully and provide HIGH confidence (90-100%) when card details are visible."
+      : "Note on images: The provided images include overall views (front and back) as well as close-up macro inspection photos of corners, edges, and surface. Inspect ALL images carefully.",
     "",
     "Grade this card from the images above.",
   ]

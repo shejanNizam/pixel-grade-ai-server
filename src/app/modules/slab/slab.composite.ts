@@ -292,8 +292,8 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     .meta   { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
     .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
     .grade  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 800; fill: #FFFFFF; }
-    .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #F0C674; letter-spacing: 2px; }
-    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #A855F7; letter-spacing: 1px; }
+    .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 2px; }
+    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
