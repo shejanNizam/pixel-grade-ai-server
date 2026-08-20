@@ -49,6 +49,7 @@ const getMyCollection = async (
   if (query.set) match["card.setExpansion"] = query.set;
   if (query.rarity) match["card.rarity"] = query.rarity;
   if (query.favorite) match.favorite = query.favorite === "true";
+  if (query.verified) match["report.pixelVerified"] = query.verified === "true";
 
   // Ranges are inclusive on both ends. Each bound is applied independently so
   // "min only" and "max only" both work.

@@ -8,6 +8,7 @@ import { logger } from "./app/utils/logger";
 import { seedAdmin } from "./app/utils/seedAdmin";
 import { seedCmsPages } from "./app/utils/seedCmsPages";
 import { warnIfCaptchaDisabled } from "./app/services/captcha.provider";
+import { warnIfFontsMissing } from "./app/modules/slab/slab.fonts";
 import { seedPlans } from "./app/utils/seedPlans";
 import { seedSuperAdmin } from "./app/utils/seedSuperAdmin";
 import { initSocket } from "./socket/socket";
@@ -29,6 +30,10 @@ async function main() {
 
     // Surfaces a deploy that left spam protection off — see captcha.provider.
     warnIfCaptchaDisabled();
+
+    // Surfaces a host with no fonts installed, which renders every glyph in the
+    // slab band as an empty box without failing anything — see slab.fonts.
+    warnIfFontsMissing();
 
     const httpServer = http.createServer(app);
     await initSocket(httpServer);

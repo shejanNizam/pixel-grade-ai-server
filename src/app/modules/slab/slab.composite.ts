@@ -46,6 +46,23 @@ export interface LabelText {
   ownerInitials?: string;
 }
 
+/**
+ * Font stacks for the band, concrete families first.
+ *
+ * The generic `sans-serif` is last, not first. Put it first and fontconfig
+ * resolves the alias to whatever the host happens to have — which is a
+ * different face with different metrics on every machine, while `fitToColumn`
+ * below sizes every column against one fixed set of glyph advances. Naming
+ * DejaVu first makes Elastic Beanstalk (.ebextensions/02_fonts.config), the
+ * Docker image (font-dejavu) and local dev converge on the same face, so a
+ * column that fits in a test fits in print.
+ *
+ * The generic still earns its place at the end: it is the difference between a
+ * substituted face and no text at all.
+ */
+const SANS = `'DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif`;
+const SERIF = `'DejaVu Serif', 'Liberation Serif', 'Noto Serif', Georgia, 'Times New Roman', serif`;
+
 /** XML-escape — card names legitimately contain `&` (e.g. "Bill & Co"), which
  *  would otherwise produce malformed SVG and a blank text layer. */
 const esc = (value: string): string =>
@@ -286,14 +303,14 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .handle { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
-    .initials { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
-    .name   { font-family: serif, 'DejaVu Serif', 'Liberation Serif', Georgia, 'Times New Roman', sans-serif; font-weight: 700; fill: #FFFFFF; }
-    .meta   { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; }
-    .micro  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
-    .grade  { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 800; fill: #FFFFFF; }
-    .glabel { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 2px; }
-    .verified { font-family: sans-serif, 'DejaVu Sans', 'Liberation Sans', 'Segoe UI', Helvetica, Arial; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
+    .handle { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
+    .initials { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
+    .name   { font-family: ${SERIF}; font-weight: 700; fill: #FFFFFF; }
+    .meta   { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
+    .micro  { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
+    .grade  { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; }
+    .glabel { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 2px; }
+    .verified { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"

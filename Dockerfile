@@ -11,7 +11,8 @@ FROM node:22-alpine AS production
 WORKDIR /app
 
 # Run as non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Install system fonts for sharp/librsvg SVG text rendering on Linux
+RUN apk add --no-cache fontconfig font-dejavu ttf-freefont
 
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force

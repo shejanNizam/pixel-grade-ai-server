@@ -68,8 +68,7 @@ const grade = async (input: GradingInput): Promise<GradingOutput> => {
           role: "user",
           content: [
             ...input.imageUrls.map(
-              (url) =>
-                ({ type: "image_url", image_url: { url } }) as const,
+              (url) => ({ type: "image_url", image_url: { url } }) as const,
             ),
             { type: "text", text: buildUserPrompt(input) },
           ],
@@ -80,7 +79,7 @@ const grade = async (input: GradingInput): Promise<GradingOutput> => {
     logger.error("OpenAI API call failed during grading:", err);
     throw new AppError(
       httpStatus.SERVICE_UNAVAILABLE,
-      "The AI grading service is temporarily unavailable. Please verify backend API credentials or try again shortly.",
+      "The AI grading service is temporarily unavailable. Please contact with support team or try again shortly.",
     );
   }
 
