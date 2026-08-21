@@ -14,6 +14,8 @@ import { PlanRoutes } from "../modules/plan/plan.route";
 import { PriceRoutes } from "../modules/price/price.route";
 import { SlabRoutes } from "../modules/slab/slab.route";
 import { SlabOrderRoutes } from "../modules/slabOrder/slabOrder.route";
+import { cartRoutes } from "../modules/cart/cart.route";
+import { shippoRoutes } from "../modules/shippo/shippo.route";
 import { SubscriptionRoutes } from "../modules/subscription/subscription.route";
 import { SupportRoutes } from "../modules/support/support.route";
 import { TransactionRoutes } from "../modules/transaction/transaction.route";
@@ -34,6 +36,8 @@ const moduleRoutes = [
   { path: "/grading", route: GradingRoutes },
   { path: "/slab", route: SlabRoutes },
   { path: "/slab-order", route: SlabOrderRoutes },
+  { path: "/cart", route: cartRoutes },
+  { path: "/shippo", route: shippoRoutes },
   { path: "/collection", route: CollectionRoutes },
   { path: "/price", route: PriceRoutes },
   { path: "/subscription", route: SubscriptionRoutes },

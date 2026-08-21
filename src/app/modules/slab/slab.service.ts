@@ -545,7 +545,8 @@ const exportPrintSlab = async (userId: string, labelId: string, format: "png" | 
   if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
 
   const requestingUser = await User.findById(userId);
-  if (requestingUser?.role !== "admin" && String(label.user) !== userId) {
+  const isStaff = requestingUser?.role === "admin" || requestingUser?.role === "super_admin";
+  if (!isStaff && String(label.user) !== userId) {
     throw new AppError(httpStatus.FORBIDDEN, "Access denied to this slab label");
   }
 
@@ -585,7 +586,8 @@ const exportLabelOnly = async (userId: string, labelId: string, format: "png" | 
   if (!label) throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
 
   const requestingUser = await User.findById(userId);
-  if (requestingUser?.role !== "admin" && String(label.user) !== userId) {
+  const isStaff = requestingUser?.role === "admin" || requestingUser?.role === "super_admin";
+  if (!isStaff && String(label.user) !== userId) {
     throw new AppError(httpStatus.FORBIDDEN, "Access denied to this slab label");
   }
 

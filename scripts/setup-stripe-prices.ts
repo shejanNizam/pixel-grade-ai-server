@@ -9,12 +9,19 @@
  * STRIPE_SECRET_KEY and DATABASE_URL already in .env. Stripe test mode only —
  * no real charges are created.
  */
+import dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.join(process.cwd(), ".env") });
+
 import mongoose from "mongoose";
 import Stripe from "stripe";
 
-const { STRIPE_SECRET_KEY, DATABASE_URL } = process.env;
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+const DATABASE_URL = process.env.DATABASE_URL || process.env.DB_URL;
 
-const isTestKey = STRIPE_SECRET_KEY?.startsWith("sk_test_");
+const isTestKey =
+  STRIPE_SECRET_KEY?.startsWith("sk_test_") ||
+  STRIPE_SECRET_KEY?.startsWith("rk_test_");
 const isLiveKey =
   STRIPE_SECRET_KEY?.startsWith("sk_live_") ||
   STRIPE_SECRET_KEY?.startsWith("rk_live_");

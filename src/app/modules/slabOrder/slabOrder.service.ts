@@ -1,78 +1,144 @@
+import httpStatus from "http-status";
 import AppError from "../../errorHelpers/AppError";
 import { SlabLabel } from "../slab/slab.model";
-import { ISlabOrderInitial } from "./slabOrder.interface";
 import { SlabOrder } from "./slabOrder.model";
+import { ShippoService } from "../../services/shippo.service";
+import { createSlabCheckoutSession, isStripeConfigured } from "../../services/stripe.service";
+import { configs } from "../../config";
 import { sendEmail } from "../../utils/sendEmail";
 import { logger } from "../../utils/logger";
 
-const PHYSICAL_SLAB_UNIT_PRICE = 9.99; // $9.99 sale price per custom physical slab
-const USPS_SHIPPING_FEE = 4.99; // $4.99 USPS Flat Rate
-const TAX_RATE = 0.08; // 8% Estimated Tax Rate
+const UNIT_PRICE = 24.99;
+const TAX_RATE = 0.085; // 8.50% tax per client spec
+
+/** Generates human-readable order number like #PG-10023 */
+const generateOrderNumber = async (): Promise<string> => {
+  let unique = false;
+  let orderNum = "";
+  while (!unique) {
+    const random = Math.floor(10000 + Math.random() * 90000);
+    orderNum = `#PG-${random}`;
+    const existing = await SlabOrder.findOne({ orderNumber: orderNum });
+    if (!existing) unique = true;
+  }
+  return orderNum;
+};
 
 const createOrder = async (userId: string, payload: any) => {
-  const targetId = payload.slabId || payload.slabLabel;
-  const slab = await SlabLabel.findById(targetId).populate("report");
-  if (!slab) {
-    throw new AppError(404, "Slab label not found");
+  const orderNumber = await generateOrderNumber();
+
+  // Support multi-item cart OR single slab fallback
+  let items: any[] = [];
+
+  if (Array.isArray(payload.items) && payload.items.length > 0) {
+    items = payload.items.map((i: any) => ({
+      slab: i.slab || i.slabId,
+      cardName: i.cardName || "Custom Slab",
+      grade: i.grade || 10,
+      gradeLabel: i.gradeLabel || "GEM-MINT",
+      compositeUrl: i.compositeUrl || "",
+      price: i.price || UNIT_PRICE,
+    }));
+  } else {
+    const targetId = payload.slabId || payload.slab || payload.slabLabel;
+    if (targetId) {
+      const slab = await SlabLabel.findById(targetId).populate("report");
+      if (slab) {
+        const report = slab.report as any;
+        items.push({
+          slab: slab._id,
+          cardName: report?.card?.name || "Custom Slab",
+          grade: report?.grade || 10,
+          gradeLabel: report?.gradeLabel || "GEM-MINT",
+          compositeUrl: slab.compositeUrl || slab.exportPngUrl || "",
+          price: UNIT_PRICE,
+        });
+      }
+    }
   }
 
-  const quantity = Math.max(1, payload.quantity ?? 1);
-  const subtotal = Number((quantity * PHYSICAL_SLAB_UNIT_PRICE).toFixed(2));
-  const shippingFee = payload.shippingFee ?? USPS_SHIPPING_FEE;
-  const taxAmount = payload.taxAmount ?? Number((subtotal * TAX_RATE).toFixed(2));
+  if (items.length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Order must contain at least one custom slab item.");
+  }
+
+  const quantity = items.length;
+  const subtotal = items.reduce((sum, item) => sum + (item.price || UNIT_PRICE), 0);
+  
+  // Calculate Shippo rates if address is provided
+  let shippingFee = payload.shippingFee ?? 5.95;
+  let shippoData: any = undefined;
+
+  if (payload.shippingAddress) {
+    try {
+      const shippoResult = await ShippoService.getRatesForShipment(
+        payload.shippingAddress,
+        quantity,
+      );
+      if (shippoResult.selectedRate) {
+        shippingFee = shippoResult.selectedRate.amount;
+        shippoData = {
+          shipmentId: shippoResult.shipmentId,
+          rateId: shippoResult.selectedRate.rateId,
+          carrier: shippoResult.selectedRate.provider,
+        };
+      }
+    } catch (err: any) {
+      logger.warn("Shippo rate estimation warning:", err.message);
+    }
+  }
+
+  const taxAmount = Number((subtotal * TAX_RATE).toFixed(2));
   const totalAmount = Number((subtotal + shippingFee + taxAmount).toFixed(2));
 
-  // Auto-generate USPS Tracking Number upon checkout submission
-  const autoTrackingNumber = `USPS-9400111899${Math.floor(100000 + Math.random() * 900000)}`;
+  const primarySlab = items[0]?.slab;
 
   const order = await SlabOrder.create({
+    orderNumber,
     user: userId,
-    slab: slab._id,
-    slabLabel: slab._id,
-    report: slab.report,
+    items,
+    slab: primarySlab,
+    slabLabel: primarySlab,
     shippingAddress: payload.shippingAddress,
     quantity,
-    unitPrice: PHYSICAL_SLAB_UNIT_PRICE,
+    unitPrice: UNIT_PRICE,
     subtotal,
     shippingFee,
     taxAmount,
     totalAmount,
     amount: totalAmount,
-    shippingCarrier: "USPS",
-    paymentStatus: "paid",
-    orderStatus: "processing",
-    status: "processing",
-    trackingNumber: autoTrackingNumber,
-    notes: "Order placed & shipping label created via USPS Standard Service.",
+    shippingCarrier: shippoData?.carrier || "USPS",
+    paymentStatus: payload.paymentStatus || "paid",
+    orderStatus: payload.paymentStatus === "paid" ? "order_received" : "pending",
+    status: payload.paymentStatus === "paid" ? "order_received" : "pending",
+    stripePaymentIntentId: payload.stripePaymentIntentId,
+    shippo: shippoData,
+    notes: payload.notes,
   });
 
   const populatedOrder = await order.populate([
     { path: "user", select: "name email phone username avatar" },
-    {
-      path: "slab",
-      populate: { path: "report", populate: { path: "card" } },
-    },
+    { path: "items.slab" },
   ]);
 
-  // Send automated HTML order & shipping confirmation email to customer
+  // Send automated Order Received Confirmation Email (Email 1) upon successful payment
   const userObj = populatedOrder.user as any;
   const recipientEmail = userObj?.email;
   if (recipientEmail) {
     try {
       await sendEmail({
         to: recipientEmail,
-        subject: `Order & Shipping Confirmation - #${String(populatedOrder._id).slice(-8).toUpperCase()}`,
+        subject: `Order Confirmation — ${populatedOrder.orderNumber}`,
         templateName: "orderConfirmation",
         templateData: {
           name: populatedOrder.shippingAddress?.fullName || userObj?.name || "Collector",
-          orderId: String(populatedOrder._id),
+          orderId: populatedOrder.orderNumber,
           quantity: populatedOrder.quantity,
           subtotal: populatedOrder.subtotal?.toFixed(2),
           shippingFee: populatedOrder.shippingFee?.toFixed(2),
           taxAmount: populatedOrder.taxAmount?.toFixed(2),
           totalAmount: populatedOrder.totalAmount?.toFixed(2),
-          trackingNumber: populatedOrder.trackingNumber,
           shippingAddress: populatedOrder.shippingAddress,
+          isShipped: false,
         },
       });
     } catch (err) {
@@ -81,6 +147,165 @@ const createOrder = async (userId: string, payload: any) => {
   }
 
   return populatedOrder;
+};
+
+/** Create Stripe Checkout Session for Physical Slab Order */
+const createStripeCheckout = async (userId: string, payload: any) => {
+  const { items, shippingFee = 5.95, taxAmount = 0 } = payload;
+
+  if (!items || items.length === 0) {
+    throw new AppError(httpStatus.BAD_REQUEST, "Order must contain at least one item.");
+  }
+
+  const successUrl = `${configs.frontend_url}/user-dashboard/slab-orders?checkout=success`;
+  const cancelUrl = `${configs.frontend_url}/user-dashboard/checkout?checkout=cancelled`;
+
+  if (isStripeConfigured()) {
+    const session = await createSlabCheckoutSession({
+      items: items.map((i: any) => ({
+        name: i.cardName || "Custom Slab",
+        amountInCents: (i.price || UNIT_PRICE) * 100,
+        quantity: 1,
+      })),
+      shippingFee,
+      taxAmount,
+      successUrl,
+      cancelUrl,
+      metadata: {
+        userId,
+      },
+    });
+    return session;
+  }
+
+  return { url: successUrl };
+};
+
+/** Admin action: Purchases real shipping label via Shippo and updates status to shipped */
+const purchaseOrderLabel = async (orderId: string, customRateId?: string) => {
+  const order = await SlabOrder.findById(orderId).populate("user");
+  if (!order) {
+    throw new AppError(httpStatus.NOT_FOUND, "Slab order not found");
+  }
+
+  const userObj = order.user as any;
+
+  // Sanitize address for Shippo API (USPS requires valid US ZIP and 2-letter state code)
+  const isTestMode =
+    process.env.NODE_ENV === "development" ||
+    process.env.SHIPPO_API_KEY?.startsWith("shippo_test_");
+
+  const rawZip = order.shippingAddress.postalCode || "";
+  const rawState = order.shippingAddress.state || "";
+  const isValidUSZip = /^\d{5}(-\d{4})?$/.test(rawZip.trim());
+  const isValidUSState = /^[A-Za-z]{2}$/.test(rawState.trim());
+
+  const addressWithContact = {
+    name: order.shippingAddress.fullName || userObj?.name || "Customer",
+    phone: order.shippingAddress.phone || userObj?.phone || "7075550199",
+    email: userObj?.email || "fulfillment@pixelgradeai.com",
+    street1:
+      isTestMode && (!isValidUSZip || !isValidUSState || order.shippingAddress.city?.toLowerCase().includes("dhaka"))
+        ? "112 Commercial Ct"
+        : order.shippingAddress.streetAddress,
+    city:
+      isTestMode && (!isValidUSZip || !isValidUSState || order.shippingAddress.city?.toLowerCase().includes("dhaka"))
+        ? "Santa Rosa"
+        : order.shippingAddress.city,
+    state:
+      isTestMode && (!isValidUSZip || !isValidUSState)
+        ? "CA"
+        : rawState.trim().toUpperCase(),
+    zip:
+      isTestMode && (!isValidUSZip || !isValidUSState)
+        ? "95407"
+        : rawZip.trim(),
+    country: "US",
+  };
+
+  let rateIdToUse = customRateId || order.shippo?.rateId;
+
+  // If rate ID is missing or a fallback string, create a live shipment on Shippo API to get a real rate ID
+  if (
+    !rateIdToUse ||
+    rateIdToUse.startsWith("fallback") ||
+    rateIdToUse.startsWith("usps_ground") ||
+    rateIdToUse.startsWith("estimated")
+  ) {
+    const liveShipment = await ShippoService.getRatesForShipment(
+      addressWithContact,
+      order.quantity || 1,
+    );
+    if (liveShipment.selectedRate) {
+      rateIdToUse = liveShipment.selectedRate.rateId;
+    }
+  }
+
+  if (!rateIdToUse || rateIdToUse.startsWith("fallback") || rateIdToUse.startsWith("usps_ground") || rateIdToUse.startsWith("estimated")) {
+    throw new AppError(
+      httpStatus.BAD_REQUEST,
+      "Unable to obtain a valid live rate from Shippo API. Please verify Shippo API credentials.",
+    );
+  }
+
+  let transaction: any;
+  try {
+    transaction = await ShippoService.purchaseLabel(rateIdToUse);
+  } catch (err) {
+    // If saved rateId expired on Shippo, refresh live shipment rates and retry once
+    const liveShipment = await ShippoService.getRatesForShipment(
+      addressWithContact,
+      order.quantity || 1,
+    );
+    if (!liveShipment.selectedRate?.rateId || liveShipment.selectedRate.rateId.startsWith("fallback") || liveShipment.selectedRate.rateId.startsWith("usps_ground")) {
+      throw err;
+    }
+    transaction = await ShippoService.purchaseLabel(liveShipment.selectedRate.rateId);
+  }
+
+  order.shippo = {
+    ...order.shippo,
+    transactionId: transaction.transactionId,
+    labelUrl: transaction.labelUrl,
+    trackingNumber: transaction.trackingNumber,
+    trackingUrl: transaction.trackingUrl,
+    carrier: transaction.carrier,
+  };
+  order.trackingNumber = transaction.trackingNumber;
+  order.orderStatus = "shipped";
+  order.status = "shipped";
+
+  await order.save();
+
+  // Trigger Real Shipping Notification Email 2 to customer
+  const recipientEmail = userObj?.email;
+  if (recipientEmail) {
+    try {
+      await sendEmail({
+        to: recipientEmail,
+        subject: `Your PixelGrade Order ${order.orderNumber} Has Shipped!`,
+        templateName: "orderConfirmation", // reusing or sending shipping email template
+        templateData: {
+          name: order.shippingAddress?.fullName || userObj?.name || "Collector",
+          orderId: order.orderNumber,
+          quantity: order.quantity,
+          subtotal: order.subtotal?.toFixed(2),
+          shippingFee: order.shippingFee?.toFixed(2),
+          taxAmount: order.taxAmount?.toFixed(2),
+          totalAmount: order.totalAmount?.toFixed(2),
+          trackingNumber: transaction.trackingNumber,
+          trackingUrl: transaction.trackingUrl,
+          labelUrl: transaction.labelUrl,
+          shippingAddress: order.shippingAddress,
+          isShipped: true,
+        },
+      });
+    } catch (err) {
+      logger.error("Failed to send shipping email notification", { error: err });
+    }
+  }
+
+  return order;
 };
 
 const getMyOrders = async (
@@ -98,10 +323,7 @@ const getMyOrders = async (
       .limit(limit)
       .populate([
         { path: "user", select: "name email phone username avatar" },
-        {
-          path: "slab",
-          populate: { path: "report", populate: { path: "card" } },
-        },
+        { path: "items.slab" },
       ]),
     SlabOrder.countDocuments({ user: userId }),
   ]);
@@ -138,10 +360,7 @@ const getAllOrders = async (query: {
       .limit(limit)
       .populate([
         { path: "user", select: "name email phone username avatar" },
-        {
-          path: "slab",
-          populate: { path: "report", populate: { path: "card" } },
-        },
+        { path: "items.slab" },
       ]),
     SlabOrder.countDocuments(filter),
   ]);
@@ -157,17 +376,29 @@ const getAllOrders = async (query: {
   };
 };
 
+const getOrderById = async (orderId: string) => {
+  const order = await SlabOrder.findById(orderId).populate([
+    { path: "user", select: "name email phone username avatar" },
+    { path: "items.slab" },
+  ]);
+  if (!order) {
+    throw new AppError(httpStatus.NOT_FOUND, "Slab order not found");
+  }
+  return order;
+};
+
 const updateOrderStatus = async (
   orderId: string,
   payload: { orderStatus?: string; trackingNumber?: string; notes?: string },
 ) => {
   const order = await SlabOrder.findById(orderId);
   if (!order) {
-    throw new AppError(404, "Slab order not found");
+    throw new AppError(httpStatus.NOT_FOUND, "Slab order not found");
   }
 
   if (payload.orderStatus) {
     order.orderStatus = payload.orderStatus as any;
+    order.status = payload.orderStatus;
   }
   if (payload.trackingNumber !== undefined) {
     order.trackingNumber = payload.trackingNumber;
@@ -179,16 +410,16 @@ const updateOrderStatus = async (
   await order.save();
   return await order.populate([
     { path: "user", select: "name email phone username avatar" },
-    {
-      path: "slab",
-      populate: { path: "report", populate: { path: "card" } },
-    },
+    { path: "items.slab" },
   ]);
 };
 
 export const SlabOrderServices = {
   createOrder,
+  createStripeCheckout,
+  purchaseOrderLabel,
   getMyOrders,
   getAllOrders,
+  getOrderById,
   updateOrderStatus,
 };

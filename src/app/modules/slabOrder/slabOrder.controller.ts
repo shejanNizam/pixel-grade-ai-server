@@ -15,6 +15,17 @@ const createOrder = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const createStripeCheckout = catchAsync(async (req: Request, res: Response) => {
+  const { _id: userId } = req.user as JwtPayload;
+  const result = await SlabOrderServices.createStripeCheckout(userId as string, req.body);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Stripe Checkout session created successfully!",
+    data: result,
+  });
+});
+
 const getMyOrders = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
   const result = await SlabOrderServices.getMyOrders(userId as string, req.query);
@@ -42,6 +53,29 @@ const getAllOrders = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getOrderById = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const result = await SlabOrderServices.getOrderById(id as string);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Fetched order successfully",
+    data: result,
+  });
+});
+
+const purchaseLabel = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { rateId } = req.body;
+  const result = await SlabOrderServices.purchaseOrderLabel(id as string, rateId);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Shipping label purchased successfully via Shippo!",
+    data: result,
+  });
+});
+
 const updateOrderStatus = catchAsync(async (req: Request, res: Response) => {
   const { id } = req.params;
   const result = await SlabOrderServices.updateOrderStatus(id as string, req.body);
@@ -55,7 +89,10 @@ const updateOrderStatus = catchAsync(async (req: Request, res: Response) => {
 
 export const SlabOrderControllers = {
   createOrder,
+  createStripeCheckout,
   getMyOrders,
   getAllOrders,
+  getOrderById,
+  purchaseLabel,
   updateOrderStatus,
 };
