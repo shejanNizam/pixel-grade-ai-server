@@ -11,7 +11,6 @@ if (fs.existsSync(zipPath)) {
 
 console.log("Packaging server.zip for AWS Elastic Beanstalk...");
 
-// Files and folders to include in server.zip for Elastic Beanstalk
 const includes = [
   "dist",
   "package.json",
@@ -21,7 +20,6 @@ const includes = [
   ".platform",
 ];
 
-// PowerShell or Zip command execution
 try {
   const includeStr = includes.join(" ");
   if (process.platform === "win32") {
