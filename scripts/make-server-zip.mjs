@@ -1,4 +1,4 @@
-import fs from "fs";
+ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 
@@ -19,6 +19,11 @@ const includes = [
   ".ebextensions",
   ".platform",
 ];
+
+// Include .env if it exists in local directory
+if (fs.existsSync(path.join(root, ".env"))) {
+  includes.push(".env");
+}
 
 try {
   const includeStr = includes.join(" ");
