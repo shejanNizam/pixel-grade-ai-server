@@ -6,9 +6,12 @@ import {
 } from "../app/constants";
 import {
   bandRadius,
+  bandRails,
+  bandRowLead,
   buildCaseLayer,
   buildFrostedBand,
   buildTextLayer,
+  CAP_RATIO,
   compositePng,
   formatGrade,
   LabelText,
@@ -87,10 +90,10 @@ const trackingOf = (svg: string, cls: string): number => {
 const boxesOf = (svg: string) => {
   const texts = [
     ...svg.matchAll(
-      /<text x="([\d.]+)"[^>]*class="(\w+)" font-size="(\d+)"([^>]*)>([^<]*)<\/text>/g,
+      /<text x="([\d.]+)" y="([\d.]+)"[^>]*class="(\w+)" font-size="(\d+)"([^>]*)>([^<]*)<\/text>/g,
     ),
   ].map((m) => {
-    const [, x, cls, size, attrs, value] = m;
+    const [, x, y, cls, size, attrs, value] = m;
     const fontSize = Number(size);
     // The rendered extent: glyph advances plus the gap letter-spacing inserts
     // between them. Leaving tracking out is what let the mutation slip past.
@@ -100,6 +103,12 @@ const boxesOf = (svg: string) => {
 
     return {
       x: Number(x),
+      // An SVG `y` is the BASELINE. `capTop` is what the band aligns on, and
+      // the two only coincide for runs that happen to share a font size —
+      // which is exactly why comparing `y` values would not catch the
+      // misalignment the rails fix.
+      baseline: Number(y),
+      capTop: Number(y) - fontSize * CAP_RATIO,
       cls,
       size: fontSize,
       width,
@@ -109,12 +118,47 @@ const boxesOf = (svg: string) => {
     };
   });
 
-  const images = [...svg.matchAll(/<image x="([\d.]+)"[^>]*width="(\d+)"/g)].map((m) => ({
+  const images = [
+    ...svg.matchAll(/<image x="([\d.]+)" y="([\d.]+)"[^>]*width="(\d+)"/g),
+  ].map((m) => ({
     x: Number(m[1]),
-    width: Number(m[2]),
+    y: Number(m[2]),
+    width: Number(m[3]),
   }));
 
   return { texts, images };
+};
+
+/** The white plate the QR is drawn on — its edge, not the code inside it, is
+ *  what the eye reads as the code's top. */
+const qrPlateOf = (svg: string) => {
+  const m = /<rect x="([\d.]+)" y="([\d.]+)" width="(\d+)" height="(\d+)" rx="4"/.exec(
+    svg,
+  );
+  if (!m) throw new Error("Expected the band to contain the QR plate");
+  return { x: Number(m[1]), y: Number(m[2]), size: Number(m[3]) };
+};
+
+const rails = bandRails(layout.labelY, layout.labelHeight);
+const lead = bandRowLead(layout.labelHeight);
+
+// Column geometry, mirroring slab.composite.ts. The card-information column's
+// left edge identifies its rows: `meta` and `micro` are also used by the QR
+// column, and filtering on class alone would mix the two columns' rows.
+const bandPadX = Math.round(layout.labelWidth * 0.035);
+const bandInner = layout.labelWidth - bandPadX * 2;
+const infoX =
+  layout.labelX +
+  bandPadX +
+  Math.round(bandInner * 0.17) +
+  Math.round(bandPadX * 0.6);
+
+/** Everything in the band carries a data URI, so the avatar and the QR render
+ *  as `<image>` rather than falling back to the initial disc. */
+const fullText: LabelText = {
+  ...baseText,
+  qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
+  ownerAvatarDataUri: "data:image/png;base64,iVBORw0KGgo=",
 };
 
 /** Finds a run by predicate, failing the test loudly if the band no longer
@@ -421,6 +465,179 @@ describe("slab label band", () => {
 
     expect(svg).toContain("&amp;");
     expect(svg).not.toContain("<x>");
+  });
+});
+
+/**
+ * The band's vertical rails (client, 2026-08-24: "the top of the logo, the
+ * grade section, and the QR code should follow the same horizontal alignment").
+ *
+ * Same failure mode as the column tiling above, turned ninety degrees: every
+ * run used to carry its own fraction of the band height, so the column heads
+ * started on three different lines. Nothing throws, nothing looks broken in
+ * isolation — it just prints as a ragged strip. These pin the two rails.
+ */
+describe("slab label band vertical rails", () => {
+  it("hangs the avatar, the card name, the grade and the QR from one top line", () => {
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts, images } = boxesOf(svg);
+
+    // The avatar is drawn first, the QR last.
+    const avatar = images[0];
+    const plate = qrPlateOf(svg);
+    const grade = requireText(
+      texts,
+      (t) => t.cls === "grade",
+      "the grade",
+    );
+    const name = requireText(texts, (t) => t.cls === "name", "the card name");
+
+    expect(avatar.y).toBe(rails.top);
+    expect(plate.y).toBe(rails.top);
+    // Text is anchored by the top of its glyphs, so the comparison has to
+    // convert the baseline back — aligning the `y` values instead would put a
+    // 99 px numeral and a 47 px name ~37 px apart and still pass.
+    expect(Math.abs(grade.capTop - rails.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(name.capTop - rails.top)).toBeLessThanOrEqual(1);
+  });
+
+  it("keeps the top line whether or not the report is Pixel Verified", () => {
+    // The grade used to drop from 0.45 to 0.55 of the band when the badge was
+    // absent, so two slabs printed side by side had their grades on different
+    // lines depending on how the card was scanned.
+    const verified = boxesOf(buildTextLayer(layout, fullText).toString());
+    const plain = boxesOf(
+      buildTextLayer(layout, { ...fullText, pixelVerified: false }).toString(),
+    );
+
+    const gradeOf = (b: ReturnType<typeof boxesOf>) =>
+      requireText(b.texts, (t) => t.cls === "grade", "the grade");
+
+    expect(gradeOf(plain).baseline).toBe(gradeOf(verified).baseline);
+    expect(Math.abs(gradeOf(plain).capTop - rails.top)).toBeLessThanOrEqual(1);
+  });
+
+  it("sets the grade's word directly beneath the numeral, not adrift below it", () => {
+    // Client, 2026-08-24: "can you move up the NM info more higher up". The
+    // word names the numeral; spread over the band it sat ~2.5 mm clear of it
+    // and read as an unrelated caption.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts } = boxesOf(svg);
+
+    const grade = requireText(texts, (t) => t.cls === "grade", "the grade");
+    const word = requireText(
+      texts,
+      (t) => t.cls === "glabel",
+      "the grade label",
+    );
+
+    const lead = word.capTop - grade.baseline;
+
+    expect(lead).toBeGreaterThan(0);
+    expect(lead).toBeLessThanOrEqual(Math.round(layout.labelHeight * 0.035) + 1);
+  });
+
+  it("tucks the handle under the avatar instead of sinking it to the floor", () => {
+    // The first pass at the rails pulled every column's last row down onto
+    // `rails.bottom`, which put ~6 mm of nothing between the avatar and the
+    // handle that captions it. Client, same round: "between profile image and
+    // @username decrease the gap as before."
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts, images } = boxesOf(svg);
+
+    const avatarBottom = images[0].y + images[0].width;
+    const handle = requireText(
+      texts,
+      (t) => t.cls === "handle",
+      "the owner handle",
+    );
+
+    expect(Math.abs(handle.capTop - avatarBottom - lead)).toBeLessThanOrEqual(1);
+  });
+
+  it("sets the card's set and number tight under its name", () => {
+    // Client, same round: "below card name address and language … remove much
+    // space". Spread to the floor the three rows read as unrelated lines rather
+    // than as one card's details.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts } = boxesOf(svg);
+
+    const rows = texts.filter((t) =>
+      ["name", "meta", "micro"].includes(t.cls) && t.x === infoX,
+    );
+
+    expect(rows).toHaveLength(3);
+    for (let i = 1; i < rows.length; i++) {
+      // ±1: baselines are rounded to whole pixels, cap heights are not.
+      expect(
+        Math.abs(rows[i].capTop - rows[i - 1].baseline - lead),
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("keeps the same leading whether the set name wraps to two rows", () => {
+    // The old fixed fractions carried a separate y for the one-line and
+    // two-line cases and had to be re-tuned by hand whenever a row was added.
+    const svg = buildTextLayer(layout, {
+      ...fullText,
+      setExpansion: "Scarlet & Violet Paldean Fates Special Set",
+    }).toString();
+    const { texts } = boxesOf(svg);
+
+    const rows = texts.filter((t) =>
+      ["name", "meta", "micro"].includes(t.cls) && t.x === infoX,
+    );
+
+    expect(rows).toHaveLength(4);
+    for (let i = 1; i < rows.length; i++) {
+      // ±1: baselines are rounded to whole pixels, cap heights are not.
+      expect(
+        Math.abs(rows[i].capTop - rows[i - 1].baseline - lead),
+      ).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("keeps the Pixel ID on the floor — the QR column is the one that reaches it", () => {
+    // The QR plate eats most of the distance between the rails, so this column
+    // has no slack to tighten; spreading is what keeps the id off the band's
+    // bottom edge rather than pushing it through it.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts } = boxesOf(svg);
+
+    const id = requireText(
+      texts,
+      (t) => t.value === baseText.pixelId,
+      "the Pixel ID",
+    );
+
+    expect(Math.abs(id.baseline - rails.bottom)).toBeLessThanOrEqual(1);
+  });
+
+  it.each<[string, Partial<LabelText>]>([
+    ["decimal grade + longest label", { grade: 8.5, gradeLabel: "GEM-MT" }],
+    ["longest legal handle", { ownerUsername: "a".repeat(24) }],
+    ["long card name", { cardName: "Iono's Bellibolt ex" }],
+    ["no optional fields", {
+      setExpansion: undefined, cardNumber: undefined,
+      language: undefined, year: undefined, pixelVerified: false,
+    }],
+  ])("keeps every row inside the band with %s", (_label, overrides) => {
+    const svg = buildTextLayer(layout, { ...fullText, ...overrides }).toString();
+    const { texts, images } = boxesOf(svg);
+
+    const bandTop = layout.labelY;
+    const bandBottom = layout.labelY + layout.labelHeight;
+
+    for (const t of texts) {
+      expect(t.capTop).toBeGreaterThanOrEqual(bandTop);
+      // Descenders hang below the baseline; "@omar_mendoza" has one, and a
+      // baseline flush to the band's edge would clip its tail off in print.
+      expect(t.baseline + t.size * 0.21).toBeLessThanOrEqual(bandBottom);
+    }
+    for (const img of images) {
+      expect(img.y).toBeGreaterThanOrEqual(bandTop);
+      expect(img.y + img.width).toBeLessThanOrEqual(bandBottom);
+    }
   });
 });
 

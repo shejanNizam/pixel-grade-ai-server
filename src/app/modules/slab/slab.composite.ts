@@ -104,6 +104,112 @@ export const bandRadius = (labelHeight: number): number =>
   Math.round(labelHeight * 0.12);
 
 /**
+ * The two horizontal lines the band's columns are built against.
+ *
+ * `top` is the one that matters, and it is shared by every column: client,
+ * 2026-08-24, "the top of the logo, the grade section, and the QR code should
+ * follow the same horizontal alignment." Before it, each run carried its own
+ * fraction of the band height — 0.1 for the QR, 0.135 for the avatar, 0.45/0.55
+ * for the grade — so the three column heads started on three different lines
+ * and the band read as loose stacks rather than one strip.
+ *
+ * `bottom` is a FLOOR, not a second alignment: only the QR column reaches it
+ * (see `stackRows`). Pulling every column down onto it was the first attempt at
+ * this and the client rejected it in the same round — a column's rows caption
+ * its head, and stretched to the floor they stop reading as belonging to it.
+ *
+ * Shared rather than inlined for the same reason `bandRadius` is: the top rail
+ * is what makes the alignment a property of the BAND instead of a coincidence
+ * between four independently-chosen fractions, and a column that opts out of it
+ * re-creates exactly the bug this replaced.
+ */
+export const bandRails = (
+  labelY: number,
+  labelHeight: number,
+): { top: number; bottom: number } => ({
+  top: Math.round(labelY + labelHeight * 0.1),
+  bottom: Math.round(labelY + labelHeight * 0.87),
+});
+
+/**
+ * Leading between the rows of a column.
+ *
+ * Rows stack TIGHT under their head — the handle captions the avatar, the set
+ * name captions the card name — rather than being spread down to the band's
+ * floor (client, 2026-08-24, on the first pass at the rails: "between profile
+ * image and @username decrease the gap as before", "below card name … remove
+ * much space"). Distributing balanced as arithmetic and read as unrelated rows.
+ *
+ * ~2 mm on a 20 mm band, which is the leading the band carried before the rails
+ * went in. The client asked for the alignment, not for the rhythm underneath it.
+ */
+export const bandRowLead = (labelHeight: number): number =>
+  Math.round(labelHeight * 0.1);
+
+/**
+ * Cap height as a fraction of the font size.
+ *
+ * The band aligns runs by the TOP of their glyphs, but an SVG `y` is the
+ * baseline — so every anchor has to be converted, and aligning the `y` values
+ * of two runs at different sizes puts their tops at different heights, which is
+ * the misalignment the rails exist to fix. 0.72 is the cap height shared by
+ * DejaVu and Liberation, the faces SANS/SERIF below pin the band to; digits sit
+ * on the cap line too, which is what the grade needs.
+ */
+export const CAP_RATIO = 0.72;
+
+/** Baseline for a run whose glyph tops must sit at `capTop`. */
+const baselineAt = (capTop: number, fontSize: number): number =>
+  Math.round(capTop + fontSize * CAP_RATIO);
+
+/**
+ * Stacks a column's rows down from the top rail at a fixed leading.
+ *
+ * Rows are given as drawn HEIGHTS — cap height for a text run, pixel size for
+ * the avatar — and come back as row TOPS. This is how every column is built
+ * except the QR's; see `stackRows` for the one exception and why it is one.
+ */
+const tightRows = (top: number, lead: number, heights: number[]): number[] => {
+  let y = top;
+  return heights.map((h) => {
+    const rowTop = y;
+    y += h + lead;
+    return rowTop;
+  });
+};
+
+/**
+ * Spreads a column's rows evenly between the two rails.
+ *
+ * Used for the QR column alone. Its head is the plate, which eats most of the
+ * distance between the rails on its own, so there is no real slack to
+ * distribute — spreading and stacking come out within a couple of pixels of
+ * each other, and spreading is what lands the Pixel ID on the floor instead of
+ * pushing it past the band's bottom edge. Every other column has slack, and
+ * spreading those is precisely what the client rejected.
+ */
+const stackRows = (
+  top: number,
+  bottom: number,
+  heights: number[],
+): number[] => {
+  const total = heights.reduce((sum, h) => sum + h, 0);
+  // Clamped at zero: a column that cannot fit its rows stacks them flush
+  // instead of spacing them negatively back up out of the band.
+  const gap = Math.max(
+    0,
+    (bottom - top - total) / Math.max(1, heights.length - 1),
+  );
+
+  return tightRows(top, gap, heights);
+};
+
+/** White margin around the QR so it still scans off the frosted band. It is the
+ *  plate's edge the eye reads as the code's top, so the PLATE is what the top
+ *  rail aligns — not the image inside it. */
+const QR_PLATE = 3;
+
+/**
  * Effective character count for width estimation, discounting narrow glyphs.
  *
  * `fitToColumn` below multiplies a character COUNT by an average advance, which
@@ -131,6 +237,12 @@ const weightedChars = (value: string): number =>
  * Everything is derived from the band rectangle rather than from the trim, so
  * a label stored with different `labelWMm`/`labelHMm` still lays out correctly.
  *
+ * Columns tile horizontally and share two rails vertically — see `bandRails`.
+ * Both are the same rule: a column's position is a property of the band, never
+ * a fraction chosen for that column alone. Horizontal drift printed the grade
+ * over the Pixel ID; vertical drift started the avatar, the grade and the QR on
+ * three different lines, which is what the client's 2026-08-24 note is about.
+ *
  * The panel behind the text is TWO layers, and this builder only draws the
  * second. `buildFrostedBand` blurs and dims the artwork itself in place, and
  * the scrim below sits on top of that to guarantee contrast. Splitting it is
@@ -144,6 +256,12 @@ const weightedChars = (value: string): number =>
  */
 export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   const { labelX, labelY, labelWidth, labelHeight } = layout;
+
+  // ---- Rows ----
+  //
+  // Two horizontal lines, shared by every column: the heads of the columns hang
+  // from `rails.top` and their last row sits on `rails.bottom`. See `bandRails`.
+  const rails = bandRails(labelY, labelHeight);
 
   // ---- Columns ----
   //
@@ -178,13 +296,15 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // of text. At 300 DPI this is still ~10 mm square, which scans reliably for
   // a short URL; going much below that risks a code that will not read off
   // a printed slab.
-  const qrSize = Math.min(Math.round(labelHeight * 0.52), qrColW);
+  //
+  // The plate's margin comes off the column width, not out of it: the plate is
+  // what is drawn, so sizing the code to the full column pushed six pixels of
+  // white over the column's right edge.
+  const qrSize = Math.min(
+    Math.round(labelHeight * 0.52),
+    qrColW - QR_PLATE * 2,
+  );
   const qrX = Math.round(qrColCentre - qrSize / 2);
-  // The QR's own top, NOT the avatar's. The two shared `avatarY` until
-  // 2026-08-24, which quietly tied the code's vertical position to the identity
-  // column: nudging the avatar down to centre it moved the QR with it, and the
-  // Pixel ID beneath had to absorb the difference.
-  const qrY = Math.round(labelY + labelHeight * 0.1);
 
   // 0.21, up from 0.14 (2026-08-24, matching the client's reference band).
   // The grade is the largest glyph on the slab and the column was sized as if
@@ -285,10 +405,10 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // left-aligned against a centred disc.
   const avatarSize = Math.min(Math.round(labelHeight * 0.42), ownerW);
   const avatarX = Math.round(ownerCentre - avatarSize / 2);
-  // Sits lower than the QR (0.1): the disc has a handle beneath it, and the
-  // pair reads as off-centre in the column unless the block is balanced against
-  // the band rather than hung from its top edge.
-  const avatarY = Math.round(labelY + labelHeight * 0.135);
+  // The disc hangs from the top rail, exactly like the grade's cap line and the
+  // QR's plate. It used to sit at 0.135 against the QR's 0.1 — a 1 mm step that
+  // is small in a fraction and obvious across a 20 mm band.
+  const avatarY = rails.top;
   const avatarRadius = Math.round(avatarSize / 2);
 
   const handleText = text.ownerUsername ? `@${text.ownerUsername}` : "";
@@ -374,6 +494,86 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   const numberSize = Math.round(metaSize * 0.92);
   const numberChars = Math.max(6, Math.floor(infoW / (numberSize * 0.55)));
 
+  // ---- Vertical placement ----
+  //
+  // Every column head sits on the top rail and its rows stack tight beneath it
+  // at one shared leading, so the band has a single top line and a single
+  // rhythm rather than a dozen hand-picked fractions of the height. Rows are
+  // measured by CAP HEIGHT, not font size: the tops are what the client is
+  // aligning, and two runs at different sizes sharing a baseline do not share
+  // a top.
+  const rowLead = bandRowLead(labelHeight);
+
+  // Identity: the handle captions the disc, so it hangs one lead under it.
+  const [, handleTop] = tightRows(rails.top, rowLead, [
+    avatarSize,
+    handleSize * CAP_RATIO,
+  ]);
+
+  // Card information: as many rows as the card actually has, at the same
+  // leading whether the set name wraps to a second line or not. The old fixed
+  // fractions carried a separate y for each case and had to be re-tuned by hand
+  // every time a row was added.
+  const infoLines = [
+    { cls: "name", size: nameSize, value: fit(text.cardName, nameChars) },
+    ...(setLine1
+      ? [{ cls: "meta", size: metaSize, value: fit(setLine1, metaChars) }]
+      : []),
+    ...(setLine2
+      ? [{ cls: "meta", size: metaSize, value: fit(setLine2, metaChars) }]
+      : []),
+    ...(numberLine
+      ? [{ cls: "micro", size: numberSize, value: fit(numberLine, numberChars) }]
+      : []),
+  ];
+  const infoBaselines = tightRows(
+    rails.top,
+    rowLead,
+    infoLines.map((line) => line.size * CAP_RATIO),
+  ).map((top, i) => baselineAt(top, infoLines[i].size));
+
+  // Grade: tighter than `rowLead`, on purpose.
+  //
+  // The word does not merely follow the numeral, it names it, so it is set
+  // hard under it (client, 2026-08-24: "move up the NM info more higher up").
+  // At a full lead it floated clear of the grade and read as an unrelated
+  // caption. The badge below it is a stamp rather than part of that reading, so
+  // it takes the ordinary lead — and it is measured by the SHIELD, the tallest
+  // thing in the run, or the icon would hang above the gap the type was given.
+  const gradeLead = Math.round(labelHeight * 0.035);
+  const gradeBaseline = baselineAt(rails.top, gradeSize);
+  const gradeLabelBaseline =
+    gradeBaseline + gradeLead + Math.round(gradeLabelSize * CAP_RATIO);
+  const badgeBaseline =
+    gradeLabelBaseline + rowLead + Math.round(shieldSize * 0.78);
+
+  // QR: the plate on the top rail, the id on the bottom one, caption between.
+  // The QR's row is the PLATE's height — the white margin is what is drawn, and
+  // aligning the image inside it would leave the visible edge 3 px proud of the
+  // avatar and the grade.
+  const qrCaptionSize = Math.round(idSize * 0.9);
+  const [qrPlateTop, qrCaptionTop, pixelIdTop] = stackRows(
+    rails.top,
+    rails.bottom,
+    [qrSize + QR_PLATE * 2, qrCaptionSize * CAP_RATIO, idSize * CAP_RATIO],
+  );
+  // Reserved whether or not the code rendered: `qrDataUri` is optional only as
+  // a failure fallback, and a caption that jumped up the band when QR
+  // generation failed would print a differently-laid-out slab for the same card.
+  const qrY = Math.round(qrPlateTop + QR_PLATE);
+
+  // The divider brackets the two columns either side of it, so it has to end
+  // where THEIR content ends. Drawn to the band's floor it left a stub hanging
+  // below both: the floor belongs to the QR column, the only one that reaches
+  // it, and this rule is nowhere near that column.
+  const dividerBottom = Math.round(
+    Math.max(
+      infoBaselines[infoBaselines.length - 1],
+      text.pixelVerified ? badgeBaseline : gradeLabelBaseline,
+    ) +
+      rowLead * 0.4,
+  );
+
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
     .handle { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
@@ -418,7 +618,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
           fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" />
   ${
     handleText
-      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.7}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      ? `<text x="${ownerCentre}" y="${baselineAt(handleTop, handleSize)}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
       : ""
   }
 
@@ -426,25 +626,27 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
        card information by whitespace alone: a second rule there boxed the
        avatar in and made a four-column band read as four unrelated panels. -->
 
-  <text x="${infoX}" y="${labelY + labelHeight * 0.355}" class="name" font-size="${nameSize}">${esc(fit(text.cardName, nameChars))}</text>
-  ${setLine1 ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.5 : labelHeight * 0.55)}" class="meta" font-size="${metaSize}">${esc(fit(setLine1, metaChars))}</text>` : ""}
-  ${setLine2 ? `<text x="${infoX}" y="${labelY + labelHeight * 0.61}" class="meta" font-size="${metaSize}">${esc(fit(setLine2, metaChars))}</text>` : ""}
-  ${numberLine ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.72 : labelHeight * 0.71)}" class="micro" font-size="${numberSize}">${esc(fit(numberLine, numberChars))}</text>` : ""}
+  ${infoLines
+    .map(
+      (line, i) =>
+        `<text x="${infoX}" y="${infoBaselines[i]}" class="${line.cls}" font-size="${line.size}">${esc(line.value)}</text>`,
+    )
+    .join("\n  ")}
 
-  <line x1="${gradeLeft - gap / 2}" y1="${labelY + labelHeight * 0.15}" x2="${gradeLeft - gap / 2}" y2="${labelY + labelHeight * 0.76}"
+  <line x1="${gradeLeft - gap / 2}" y1="${rails.top}" x2="${gradeLeft - gap / 2}" y2="${dividerBottom}"
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
 
-  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.45 : labelHeight * 0.55)}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
-  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.64 : labelHeight * 0.78)}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
+  <text x="${gradeCentre}" y="${gradeBaseline}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
+  <text x="${gradeCentre}" y="${gradeLabelBaseline}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
   ${
     text.pixelVerified
-      ? `<g transform="translate(${badgeLeft} ${labelY + labelHeight * 0.8 - shieldSize * 0.78}) scale(${shieldSize / 24})">
+      ? `<g transform="translate(${badgeLeft} ${badgeBaseline - shieldSize * 0.78}) scale(${shieldSize / 24})">
            <path d="M12 1.5 L21 5.5 V12.2 C21 17.2 17.1 21.3 12 22.5 C6.9 21.3 3 17.2 3 12.2 V5.5 Z"
                  fill="#8B5CF6" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.2" />
            <path d="M7.8 12.2 L10.9 15.3 L16.4 9.2" fill="none" stroke="#FFFFFF"
                  stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
          </g>
-         <text x="${badgeLeft + shieldSize + shieldGap}" y="${labelY + labelHeight * 0.8}" class="verified" font-size="${verifiedSize}">${esc(verifiedText)}</text>`
+         <text x="${badgeLeft + shieldSize + shieldGap}" y="${badgeBaseline}" class="verified" font-size="${verifiedSize}">${esc(verifiedText)}</text>`
       : ""
   }
 
@@ -456,12 +658,12 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
        read against whatever artwork happens to be underneath will not scan. -->
   ${
     text.qrDataUri
-      ? `<rect x="${qrX - 3}" y="${qrY - 3}" width="${qrSize + 6}" height="${qrSize + 6}" rx="4" ry="4" fill="#FFFFFF" />
+      ? `<rect x="${qrX - QR_PLATE}" y="${qrY - QR_PLATE}" width="${qrSize + QR_PLATE * 2}" height="${qrSize + QR_PLATE * 2}" rx="4" ry="4" fill="#FFFFFF" />
          <image x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" href="${text.qrDataUri}" />`
       : ""
   }
-  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.755}" class="micro" font-size="${Math.round(idSize * 0.9)}" text-anchor="middle">PIXEL ID</text>
-  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.87}" class="meta" font-size="${idSize}" text-anchor="middle">${esc(text.pixelId)}</text>
+  <text x="${qrColCentre}" y="${baselineAt(qrCaptionTop, qrCaptionSize)}" class="micro" font-size="${qrCaptionSize}" text-anchor="middle">PIXEL ID</text>
+  <text x="${qrColCentre}" y="${baselineAt(pixelIdTop, idSize)}" class="meta" font-size="${idSize}" text-anchor="middle">${esc(text.pixelId)}</text>
 </svg>`;
 
   return Buffer.from(svg);

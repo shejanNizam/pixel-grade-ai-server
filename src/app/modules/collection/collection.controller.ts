@@ -22,7 +22,10 @@ const getMyCollection = catchAsync(async (req: Request, res: Response) => {
 
 const getSummary = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
-  const result = await CollectionServices.getSummary(userId as string);
+  const favorite = req.query.favorite === "true";
+  const result = await CollectionServices.getSummary(userId as string, {
+    favorite,
+  });
   sendResponse(res, {
     statusCode: httpStatus.OK,
     success: true,

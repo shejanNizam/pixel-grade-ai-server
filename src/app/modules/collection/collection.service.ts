@@ -131,9 +131,12 @@ const getMyCollection = async (
  * "has a report". The badge is a specific server-side award; counting every
  * graded entry would empty it of the meaning the award exists to protect.
  */
-const getSummary = async (userId: string) => {
+const getSummary = async (userId: string, options?: { favorite?: boolean }) => {
+  const match: Record<string, unknown> = { user: new Types.ObjectId(userId) };
+  if (options?.favorite) match.favorite = true;
+
   const pipeline: PipelineStage[] = [
-    { $match: { user: new Types.ObjectId(userId) } },
+    { $match: match },
     {
       $lookup: {
         from: GradingReport.collection.name,
