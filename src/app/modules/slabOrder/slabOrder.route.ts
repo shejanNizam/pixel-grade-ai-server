@@ -8,6 +8,7 @@ const anyUser = Object.values(UserRole);
 
 router.post("/", checkAuth(...anyUser), SlabOrderControllers.createOrder);
 router.post("/create-checkout-session", checkAuth(...anyUser), SlabOrderControllers.createStripeCheckout);
+router.post("/confirm-stripe-payment", checkAuth(...anyUser), SlabOrderControllers.confirmStripePayment);
 router.get("/my-orders", checkAuth(...anyUser), SlabOrderControllers.getMyOrders);
 router.get("/:id", checkAuth(...anyUser), SlabOrderControllers.getOrderById);
 

@@ -19,12 +19,21 @@ interface RedisLifecycleEvents {
  * pub/sub pair off the same options — three connections to one server, so they
  * must not be able to drift apart.
  */
-console.log("Redis connection options:", {
-  host: configs.REDIS.redis_host ?? "localhost",
+// Logged at boot because "which Redis is this talking to?" is the first
+// question every connection failure raises, and the default is localhost —
+// which on a deployed instance is nothing at all.
+//
+// The password is reported as present/absent, never printed: this runs on every
+// start, and on Elastic Beanstalk stdout is shipped straight to CloudWatch,
+// where it becomes a credential sitting in a log group with a far wider reader
+// list than the environment's configuration page.
+logger.info("Redis connection options", {
+  host: configs.REDIS.redis_host ?? "localhost (no REDIS_HOST configured)",
   port: parseInt(configs.REDIS.redis_port ?? "6379"),
   username: configs.REDIS.redis_username ?? "default",
-  password: configs.REDIS.redis_password ?? "",
+  password: configs.REDIS.redis_password ? "[set]" : "[empty]",
 });
+
 export const redisConnectionOptions = {
   username: configs.REDIS.redis_username ?? "default",
   password: configs.REDIS.redis_password ?? "",
@@ -56,11 +65,10 @@ export const attachRedisLogging = (
 
   client.on("error", (error: NodeJS.ErrnoException) => {
     const code = error?.code ?? error?.name ?? "unknown";
-    console.log(`${label} error`, {
-      code,
-      syscall: error?.syscall,
-      message: error?.message,
-    });
+    // No `console.log` beside the logger call below: it duplicated every line
+    // and, because it ran before the repeat check, it defeated the suppression
+    // this function exists to provide — an unreachable Redis retries forever,
+    // so that is an unbounded stream of identical lines into CloudWatch.
     if (code === lastErrorCode) return;
     lastErrorCode = code;
 
@@ -88,7 +96,11 @@ attachRedisLogging(redisClient, "Redis client");
 
 export const connectRedis = async () => {
   if (!redisClient.isOpen) {
-    await redisClient.connect();
-    logger.info("Redis Connected!");
+    try {
+      await redisClient.connect();
+      logger.info("Redis Connected!");
+    } catch (err) {
+      logger.warn("Redis connection warning (non-fatal):", { error: err });
+    }
   }
 };

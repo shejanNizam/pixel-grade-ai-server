@@ -25,16 +25,43 @@ export const initSocket = async (httpServer: HTTPServer): Promise<Server> => {
     },
   });
 
-  // Redis adapter — allows horizontal scaling across multiple server instances
+  // Redis adapter — allows horizontal scaling across multiple server instances.
+  //
+  // ⚠️ Attached in the BACKGROUND, and its failure is not fatal.
+  //
+  // This was `await`ed, and `initSocket` is itself awaited before the HTTP
+  // server binds its port. That made a reachable Redis a hard precondition of
+  // the process listening at all: with REDIS_HOST unset the client falls back
+  // to localhost:6379, node-redis retries a connection that will never succeed,
+  // and the await never settles. Nothing crashes and nothing logs — the port
+  // simply never opens, so nginx 502s, the load balancer reports the instance
+  // unhealthy, and the deployment hangs until the command timeout rolls it
+  // back. That is the 2026-08-24 (app-317) failure.
+  //
+  // `connectRedis` in the boot sequence was already written to treat Redis as
+  // non-fatal; this path quietly was not. Without the adapter Socket.io falls
+  // back to its in-memory adapter, which is correct for a single instance and
+  // degrades only cross-instance fan-out — a far better failure than a server
+  // that will not start. node-redis keeps retrying, so the adapter attaches on
+  // its own if Redis comes back.
   const pubClient = createClient(redisConnectionOptions);
   const subClient = pubClient.duplicate();
 
   attachRedisLogging(pubClient, "Socket Redis pub");
   attachRedisLogging(subClient, "Socket Redis sub");
 
-  await Promise.all([pubClient.connect(), subClient.connect()]);
-  io.adapter(createAdapter(pubClient, subClient));
-  logger.info("Socket.io Redis adapter connected.");
+  void Promise.all([pubClient.connect(), subClient.connect()])
+    .then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      logger.info("Socket.io Redis adapter connected.");
+    })
+    .catch((error) => {
+      logger.error(
+        "Socket.io Redis adapter unavailable — real-time events will not " +
+          "reach clients connected to other instances.",
+        { error },
+      );
+    });
 
   // JWT authentication middleware — runs before every connection
   io.use((socket: Socket, next) => {

@@ -5,6 +5,7 @@ import {
   SLAB_DEFAULTS,
 } from "../app/constants";
 import {
+  bandRadius,
   buildCaseLayer,
   buildFrostedBand,
   buildTextLayer,
@@ -287,6 +288,91 @@ describe("slab label band", () => {
     );
 
     expect(name.size).toBeGreaterThanOrEqual(32);
+  });
+
+  it("does not let the Pixel Verified badge run into the Pixel ID", () => {
+    // The shipped bug (fixed 2026-08-24): the badge was sized against the
+    // card-information column and drawn centred in the grade column, so it
+    // printed ~70% wider than its space and struck straight through the Pixel
+    // ID on every verified slab. Nothing here failed — the old suite measured
+    // the badge against the band's outer edges, which it never crossed.
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
+    }).toString();
+    const { texts } = boxesOf(svg);
+
+    const badge = requireText(
+      texts,
+      (t) => t.cls === "verified",
+      "the Pixel Verified badge",
+    );
+    const id = requireText(
+      texts,
+      (t) => t.value === baseText.pixelId,
+      "the Pixel ID",
+    );
+
+    // The badge is drawn from its left edge with the shield ahead of it, so the
+    // icon's own width has to be carried into the measurement.
+    const shieldSize = Math.round(layout.labelHeight * 0.075);
+    const shieldGap = Math.round(shieldSize * 0.35);
+    const badgeRight = extentOf(badge).right;
+
+    expect(badgeRight).toBeLessThanOrEqual(extentOf(id).left);
+    expect(extentOf(badge).left - shieldSize - shieldGap).toBeGreaterThan(
+      layout.labelX,
+    );
+  });
+
+  it("keeps the Pixel Verified badge on the grade's side of the divider", () => {
+    const svg = buildTextLayer(layout, baseText).toString();
+    const { texts } = boxesOf(svg);
+
+    const badge = requireText(
+      texts,
+      (t) => t.cls === "verified",
+      "the Pixel Verified badge",
+    );
+
+    // Column geometry, mirroring slab.composite.ts.
+    const padX = Math.round(layout.labelWidth * 0.035);
+    const gap = Math.round(padX * 0.6);
+    const inner = layout.labelWidth - padX * 2;
+    const qrColLeft = layout.labelX + layout.labelWidth - padX - Math.round(inner * 0.17);
+    const gradeLeft = qrColLeft - gap - Math.round(inner * 0.21);
+    const shieldSize = Math.round(layout.labelHeight * 0.075);
+    const shieldGap = Math.round(shieldSize * 0.35);
+
+    // The shield leads the run, so the badge's true left edge is the icon's.
+    expect(extentOf(badge).left - shieldSize - shieldGap).toBeGreaterThanOrEqual(
+      gradeLeft - gap / 2,
+    );
+  });
+
+  it("draws the shield only for a genuinely verified report", () => {
+    // Invariant 4: the badge is a server-awarded claim. A slab that prints it
+    // unconditionally empties it of the meaning the award gate protects.
+    const verified = buildTextLayer(layout, baseText).toString();
+    const plain = buildTextLayer(layout, {
+      ...baseText,
+      pixelVerified: false,
+    }).toString();
+
+    expect(verified).toContain("PIXEL VERIFIED");
+    expect(verified).toContain('fill="#8B5CF6"');
+    expect(plain).not.toContain("PIXEL VERIFIED");
+    expect(plain).not.toContain('fill="#8B5CF6"');
+  });
+
+  it("rounds the scrim to the same radius the frosted backdrop is cut to", () => {
+    // Both are drawn by different renderers — SVG here, a sharp alpha mask in
+    // buildFrostedBand — and each carried its own copy of the figure until they
+    // were centralised. A mismatch prints square shoulders behind a round panel.
+    const svg = buildTextLayer(layout, baseText).toString();
+    const radius = bandRadius(layout.labelHeight);
+
+    expect(svg).toContain(`rx="${radius}" ry="${radius}"`);
   });
 
   it("does not let the grade collide with the Pixel ID", () => {

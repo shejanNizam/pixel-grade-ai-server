@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import AppError from "../../errorHelpers/AppError";
 import { SlabLabel } from "../slab/slab.model";
 import { SlabOrder } from "./slabOrder.model";
+import { CartService } from "../cart/cart.service";
 import { ShippoService } from "../../services/shippo.service";
 import { createSlabCheckoutSession, isStripeConfigured } from "../../services/stripe.service";
 import { configs } from "../../config";
@@ -157,28 +158,90 @@ const createStripeCheckout = async (userId: string, payload: any) => {
     throw new AppError(httpStatus.BAD_REQUEST, "Order must contain at least one item.");
   }
 
-  const successUrl = `${configs.frontend_url}/user-dashboard/slab-orders?checkout=success`;
+  // Create pending order in database first
+  const order = await createOrder(userId, {
+    ...payload,
+    paymentStatus: "pending",
+  });
+
+  const successUrl = `${configs.frontend_url}/user-dashboard/slab-orders?checkout=success&orderId=${order._id}`;
   const cancelUrl = `${configs.frontend_url}/user-dashboard/checkout?checkout=cancelled`;
 
   if (isStripeConfigured()) {
     const session = await createSlabCheckoutSession({
-      items: items.map((i: any) => ({
+      items: (order.items || []).map((i: any) => ({
         name: i.cardName || "Custom Slab",
-        amountInCents: (i.price || UNIT_PRICE) * 100,
+        amountInCents: Math.round((i.price || UNIT_PRICE) * 100),
         quantity: 1,
       })),
-      shippingFee,
-      taxAmount,
+      shippingFee: order.shippingFee || shippingFee,
+      taxAmount: order.taxAmount || taxAmount,
       successUrl,
       cancelUrl,
       metadata: {
-        userId,
+        type: "physical_slab_order",
+        orderId: String(order._id),
+        userId: String(userId),
       },
     });
     return session;
   }
 
+  // Fallback if Stripe key is missing: mark paid immediately
+  await handleStripePaymentSuccess(String(order._id));
   return { url: successUrl };
+};
+
+/** Called when Stripe payment succeeds (via Webhook or frontend confirmation) */
+const handleStripePaymentSuccess = async (orderId: string, paymentIntentId?: string) => {
+  const order = await SlabOrder.findById(orderId);
+  if (!order) return null;
+
+  if (order.paymentStatus !== "paid") {
+    order.paymentStatus = "paid";
+    order.orderStatus = "order_received";
+    order.status = "order_received";
+    if (paymentIntentId) {
+      order.stripePaymentIntentId = paymentIntentId;
+    }
+    await order.save();
+
+    // Clear user's cart in database
+    if (order.user) {
+      await CartService.clearCart(String(order.user));
+    }
+
+    // Send Order Confirmation Email 1
+    const populatedOrder = await order.populate([
+      { path: "user", select: "name email phone username avatar" },
+      { path: "items.slab" },
+    ]);
+    const userObj = populatedOrder.user as any;
+    if (userObj?.email) {
+      try {
+        await sendEmail({
+          to: userObj.email,
+          subject: `Order Confirmation — ${populatedOrder.orderNumber}`,
+          templateName: "orderConfirmation",
+          templateData: {
+            name: populatedOrder.shippingAddress?.fullName || userObj?.name || "Collector",
+            orderId: populatedOrder.orderNumber,
+            quantity: populatedOrder.quantity,
+            subtotal: populatedOrder.subtotal?.toFixed(2),
+            shippingFee: populatedOrder.shippingFee?.toFixed(2),
+            taxAmount: populatedOrder.taxAmount?.toFixed(2),
+            totalAmount: populatedOrder.totalAmount?.toFixed(2),
+            shippingAddress: populatedOrder.shippingAddress,
+            isShipped: false,
+          },
+        });
+      } catch (err) {
+        logger.error("Failed to send order confirmation email", { error: err });
+      }
+    }
+    return populatedOrder;
+  }
+  return order;
 };
 
 /** Admin action: Purchases real shipping label via Shippo and updates status to shipped */
@@ -417,6 +480,7 @@ const updateOrderStatus = async (
 export const SlabOrderServices = {
   createOrder,
   createStripeCheckout,
+  handleStripePaymentSuccess,
   purchaseOrderLabel,
   getMyOrders,
   getAllOrders,

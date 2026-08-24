@@ -92,6 +92,34 @@ export const formatGrade = (grade: number): string =>
   Number.isInteger(grade) ? String(grade) : grade.toFixed(1);
 
 /**
+ * The band's corner radius.
+ *
+ * Shared, because it is drawn TWICE by two different renderers: the scrim in
+ * `buildTextLayer` (SVG) and the alpha mask in `buildFrostedBand` (sharp). Both
+ * carried their own `labelHeight * 0.09` until 2026-08-24, so changing the
+ * radius in one place left the blurred backdrop poking square shoulders out
+ * from behind the rounded scrim — visible only in a render, never in a test.
+ */
+export const bandRadius = (labelHeight: number): number =>
+  Math.round(labelHeight * 0.12);
+
+/**
+ * Effective character count for width estimation, discounting narrow glyphs.
+ *
+ * `fitToColumn` below multiplies a character COUNT by an average advance, which
+ * treats "8.5" as three full-width digits — the period is closer to half of one.
+ * On the grade, the tightest column in the band, that pessimism cost ~15% of the
+ * numeral's size for every half-grade: an 8.5 printed visibly smaller than a 10
+ * beside it, for no reason a reader could see.
+ *
+ * Deliberately conservative — it only discounts glyphs that are unambiguously
+ * narrow in every face the band can resolve to, and never widens an estimate.
+ */
+const NARROW = /[.,:;'!|Il1 ]/;
+const weightedChars = (value: string): number =>
+  [...value].reduce((sum, ch) => sum + (NARROW.test(ch) ? 0.45 : 1), 0);
+
+/**
  * Label text as an SVG overlay sized to the full canvas, so it can be
  * composited at (0,0) without offset maths.
  *
@@ -141,7 +169,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // The QR column holds the code AND the id beneath it, so it is sized by
   // whichever of the two is wider — the id is the longer of the pair at typical
   // sizes, and a column cut to the QR alone would clip it.
-  const qrColW = Math.round(inner * 0.19);
+  const qrColW = Math.round(inner * 0.17);
   const qrColRight = labelX + labelWidth - padX;
   const qrColLeft = qrColRight - qrColW;
   const qrColCentre = qrColLeft + qrColW / 2;
@@ -150,10 +178,21 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // of text. At 300 DPI this is still ~10 mm square, which scans reliably for
   // a short URL; going much below that risks a code that will not read off
   // a printed slab.
-  const qrSize = Math.min(Math.round(labelHeight * 0.5), qrColW);
+  const qrSize = Math.min(Math.round(labelHeight * 0.52), qrColW);
   const qrX = Math.round(qrColCentre - qrSize / 2);
+  // The QR's own top, NOT the avatar's. The two shared `avatarY` until
+  // 2026-08-24, which quietly tied the code's vertical position to the identity
+  // column: nudging the avatar down to centre it moved the QR with it, and the
+  // Pixel ID beneath had to absorb the difference.
+  const qrY = Math.round(labelY + labelHeight * 0.1);
 
-  const gradeW = Math.round(inner * 0.14);
+  // 0.21, up from 0.14 (2026-08-24, matching the client's reference band).
+  // The grade is the largest glyph on the slab and the column was sized as if
+  // it were furniture: at 0.14 a three-character grade like "8.5" was capped to
+  // ~58% of the size the design asks for, so half-grades printed noticeably
+  // smaller than whole ones. The width comes from the card-info column, which
+  // keeps its long-name floor — `slabComposite.test.ts` pins that at 32 px.
+  const gradeW = Math.round(inner * 0.21);
   const gradeRight = qrColLeft - gap;
   const gradeLeft = gradeRight - gradeW;
   const gradeCentre = gradeLeft + gradeW / 2;
@@ -217,7 +256,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // unreadable type.
   const MAX_NAME_CHARS = 16;
   const nameSize = fitToColumn(
-    Math.round(labelHeight * 0.185),
+    Math.round(labelHeight * 0.2),
     infoW,
     Math.min(text.cardName.length, MAX_NAME_CHARS),
     { advance: 0.55 },
@@ -227,21 +266,29 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   const gradeSize = fitToColumn(
     Math.round(labelHeight * 0.42),
     gradeW,
-    gradeText.length,
+    weightedChars(gradeText),
     { advance: 0.62 },
   );
-  const gradeLabelSize = fitToColumn(microSize, gradeW, gradeLabelText.length, {
-    tracking: 2,
-    advance: CAPS_ADVANCE,
-  });
+  const gradeLabelSize = fitToColumn(
+    microSize,
+    gradeW,
+    weightedChars(gradeLabelText),
+    {
+      tracking: 2,
+      advance: CAPS_ADVANCE,
+    },
+  );
   // ---- Owner identity ----
   //
   // The avatar is a disc sized from the band height, with the handle beneath.
   // Both are centred in the column so a short handle does not read as
   // left-aligned against a centred disc.
-  const avatarSize = Math.min(Math.round(labelHeight * 0.44), ownerW);
+  const avatarSize = Math.min(Math.round(labelHeight * 0.42), ownerW);
   const avatarX = Math.round(ownerCentre - avatarSize / 2);
-  const avatarY = Math.round(labelY + labelHeight * 0.1);
+  // Sits lower than the QR (0.1): the disc has a handle beneath it, and the
+  // pair reads as off-centre in the column unless the block is balanced against
+  // the band rather than hung from its top edge.
+  const avatarY = Math.round(labelY + labelHeight * 0.135);
   const avatarRadius = Math.round(avatarSize / 2);
 
   const handleText = text.ownerUsername ? `@${text.ownerUsername}` : "";
@@ -270,13 +317,34 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     tracking: 1,
   });
 
-  const verifiedText = "✦ PIXEL VERIFIED";
-  const verifiedSize = fitToColumn(microSize, infoW, verifiedText.length, {
-    tracking: 1,
-    advance: CAPS_ADVANCE,
-  });
+  // ---- Pixel Verified badge ----
+  //
+  // ⚠️ This was sized against `infoW` — the card-information column — while
+  // being DRAWN centred in the grade column, which is less than half as wide.
+  // The run therefore printed ~70% wider than the space it sits in: it reached
+  // back under the set name on one side and straight through the Pixel ID on
+  // the other, on every verified slab. It is the exact per-column mistake this
+  // file's header warns about, and it is invisible until something is printed.
+  //
+  // The badge is now measured against its OWN column, icon included, and the
+  // shield is sized from the type rather than fixed so the two scale together.
+  const verifiedText = "PIXEL VERIFIED";
+  const shieldSize = Math.round(labelHeight * 0.075);
+  const shieldGap = Math.round(shieldSize * 0.35);
+  const verifiedSize = fitToColumn(
+    microSize,
+    gradeW - shieldSize - shieldGap,
+    weightedChars(verifiedText),
+    { advance: CAPS_ADVANCE },
+  );
+  // Laid out as one unit — icon, gap, text — then centred as a unit on the
+  // grade column, so the shield cannot drift away from the words it qualifies.
+  const verifiedTextW =
+    weightedChars(verifiedText) * verifiedSize * CAPS_ADVANCE;
+  const badgeW = shieldSize + shieldGap + verifiedTextW;
+  const badgeLeft = gradeCentre - badgeW / 2;
 
-  const radius = Math.round(labelHeight * 0.09);
+  const radius = bandRadius(labelHeight);
 
   // Character budget for the free-text column, from its pixel width.
   const nameChars = Math.min(
@@ -297,9 +365,14 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     }
   }
 
-  const numberLine = [text.cardNumber, text.language]
-    .filter(Boolean)
-    .join("  ·  ");
+  // Single spaces around the bullet. The separator was "  ·  " — five
+  // characters of the column's budget spent on punctuation, which is what
+  // truncated "English" to "Engl…" once the card-info column narrowed.
+  const numberLine = [text.cardNumber, text.language].filter(Boolean).join(" • ");
+  // Set one step down from the set lines and given its own budget: it is
+  // reference data, not a name, and it is the longest line in the column.
+  const numberSize = Math.round(metaSize * 0.92);
+  const numberChars = Math.max(6, Math.floor(infoW / (numberSize * 0.55)));
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
@@ -310,7 +383,10 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     .micro  { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
     .grade  { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; }
     .glabel { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 2px; }
-    .verified { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
+    /* No letter-spacing: this is the longest run in the narrowest column, and
+       tracking 14 capitals is what pushed it out of the column in the first
+       place. Every pixel it buys back goes into the type size instead. */
+    .verified { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
@@ -342,26 +418,33 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
           fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2" />
   ${
     handleText
-      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.77}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      ? `<text x="${ownerCentre}" y="${labelY + labelHeight * 0.7}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
       : ""
   }
 
-  <line x1="${infoX - gap / 2}" y1="${labelY + labelHeight * 0.18}" x2="${infoX - gap / 2}" y2="${labelY + labelHeight * 0.82}"
+  <!-- ONE divider, before the grade. The identity column is separated from the
+       card information by whitespace alone: a second rule there boxed the
+       avatar in and made a four-column band read as four unrelated panels. -->
+
+  <text x="${infoX}" y="${labelY + labelHeight * 0.355}" class="name" font-size="${nameSize}">${esc(fit(text.cardName, nameChars))}</text>
+  ${setLine1 ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.5 : labelHeight * 0.55)}" class="meta" font-size="${metaSize}">${esc(fit(setLine1, metaChars))}</text>` : ""}
+  ${setLine2 ? `<text x="${infoX}" y="${labelY + labelHeight * 0.61}" class="meta" font-size="${metaSize}">${esc(fit(setLine2, metaChars))}</text>` : ""}
+  ${numberLine ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.72 : labelHeight * 0.71)}" class="micro" font-size="${numberSize}">${esc(fit(numberLine, numberChars))}</text>` : ""}
+
+  <line x1="${gradeLeft - gap / 2}" y1="${labelY + labelHeight * 0.15}" x2="${gradeLeft - gap / 2}" y2="${labelY + labelHeight * 0.76}"
         stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
 
-  <text x="${infoX}" y="${labelY + labelHeight * 0.3}" class="name" font-size="${nameSize}">${esc(fit(text.cardName, nameChars))}</text>
-  ${setLine1 ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.44 : labelHeight * 0.48)}" class="meta" font-size="${metaSize}">${esc(fit(setLine1, metaChars))}</text>` : ""}
-  ${setLine2 ? `<text x="${infoX}" y="${labelY + labelHeight * 0.60}" class="meta" font-size="${metaSize}">${esc(fit(setLine2, metaChars))}</text>` : ""}
-  ${numberLine ? `<text x="${infoX}" y="${labelY + (setLine2 ? labelHeight * 0.76 : labelHeight * 0.68)}" class="micro" font-size="${metaSize * 0.9}">${esc(fit(numberLine, metaChars))}</text>` : ""}
-
-  <line x1="${gradeLeft - gap / 2}" y1="${labelY + labelHeight * 0.18}" x2="${gradeLeft - gap / 2}" y2="${labelY + labelHeight * 0.82}"
-        stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2" />
-
-  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.46 : labelHeight * 0.58)}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
-  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.65 : labelHeight * 0.8)}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
+  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.45 : labelHeight * 0.55)}" class="grade" font-size="${gradeSize}" text-anchor="middle">${esc(gradeText)}</text>
+  <text x="${gradeCentre}" y="${labelY + (text.pixelVerified ? labelHeight * 0.64 : labelHeight * 0.78)}" class="glabel" font-size="${gradeLabelSize}" text-anchor="middle">${esc(gradeLabelText)}</text>
   ${
     text.pixelVerified
-      ? `<text x="${gradeCentre}" y="${labelY + labelHeight * 0.83}" class="verified" font-size="${verifiedSize}" text-anchor="middle">✓ PIXEL VERIFIED</text>`
+      ? `<g transform="translate(${badgeLeft} ${labelY + labelHeight * 0.8 - shieldSize * 0.78}) scale(${shieldSize / 24})">
+           <path d="M12 1.5 L21 5.5 V12.2 C21 17.2 17.1 21.3 12 22.5 C6.9 21.3 3 17.2 3 12.2 V5.5 Z"
+                 fill="#8B5CF6" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="1.2" />
+           <path d="M7.8 12.2 L10.9 15.3 L16.4 9.2" fill="none" stroke="#FFFFFF"
+                 stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+         </g>
+         <text x="${badgeLeft + shieldSize + shieldGap}" y="${labelY + labelHeight * 0.8}" class="verified" font-size="${verifiedSize}">${esc(verifiedText)}</text>`
       : ""
   }
 
@@ -373,12 +456,12 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
        read against whatever artwork happens to be underneath will not scan. -->
   ${
     text.qrDataUri
-      ? `<rect x="${qrX - 3}" y="${avatarY - 3}" width="${qrSize + 6}" height="${qrSize + 6}" rx="4" ry="4" fill="#FFFFFF" />
-         <image x="${qrX}" y="${avatarY}" width="${qrSize}" height="${qrSize}" href="${text.qrDataUri}" />`
+      ? `<rect x="${qrX - 3}" y="${qrY - 3}" width="${qrSize + 6}" height="${qrSize + 6}" rx="4" ry="4" fill="#FFFFFF" />
+         <image x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" href="${text.qrDataUri}" />`
       : ""
   }
-  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.73}" class="micro" font-size="${Math.round(idSize * 0.9)}" text-anchor="middle">PIXEL ID</text>
-  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.89}" class="meta" font-size="${idSize}" text-anchor="middle">${esc(text.pixelId)}</text>
+  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.755}" class="micro" font-size="${Math.round(idSize * 0.9)}" text-anchor="middle">PIXEL ID</text>
+  <text x="${qrColCentre}" y="${labelY + labelHeight * 0.87}" class="meta" font-size="${idSize}" text-anchor="middle">${esc(text.pixelId)}</text>
 </svg>`;
 
   return Buffer.from(svg);
@@ -494,7 +577,7 @@ export const buildFrostedBand = async (
   layout: SlabLayout,
 ): Promise<Buffer> => {
   const { labelX, labelY, labelWidth, labelHeight } = layout;
-  const radius = Math.round(labelHeight * 0.09);
+  const radius = bandRadius(labelHeight);
 
   const frosted = await sharp(background)
     .extract({

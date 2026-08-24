@@ -26,6 +26,17 @@ const createStripeCheckout = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const confirmStripePayment = catchAsync(async (req: Request, res: Response) => {
+  const { orderId } = req.body;
+  const result = await SlabOrderServices.handleStripePaymentSuccess(orderId);
+  sendResponse(res, {
+    statusCode: 200,
+    success: true,
+    message: "Stripe payment confirmed and order activated successfully!",
+    data: result,
+  });
+});
+
 const getMyOrders = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
   const result = await SlabOrderServices.getMyOrders(userId as string, req.query);
@@ -90,6 +101,7 @@ const updateOrderStatus = catchAsync(async (req: Request, res: Response) => {
 export const SlabOrderControllers = {
   createOrder,
   createStripeCheckout,
+  confirmStripePayment,
   getMyOrders,
   getAllOrders,
   getOrderById,

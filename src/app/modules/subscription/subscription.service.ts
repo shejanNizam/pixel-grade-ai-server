@@ -12,6 +12,7 @@ import { NotificationServices } from "../notification/notification.service";
 import { PlanName } from "../plan/plan.interface";
 import { Plan } from "../plan/plan.model";
 import { SlabOrder } from "../slabOrder/slabOrder.model";
+import { SlabOrderServices } from "../slabOrder/slabOrder.service";
 import { TxnStatus, TxnType } from "../transaction/transaction.interface";
 import { Transaction } from "../transaction/transaction.model";
 import { User } from "../user/user.model";
@@ -239,7 +240,16 @@ const handleWebhookEvent = async (event: Stripe.Event) => {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object;
-      const { userId, planId, interval } = session.metadata ?? {};
+      const { type, orderId, userId, planId, interval } = session.metadata ?? {};
+
+      if (type === "physical_slab_order" && orderId) {
+        await SlabOrderServices.handleStripePaymentSuccess(
+          orderId,
+          String(session.payment_intent || session.id),
+        );
+        return { handled: true };
+      }
+
       if (!userId || !planId || !interval) {
         logger.error("Checkout session completed without metadata", {
           sessionId: session.id,
