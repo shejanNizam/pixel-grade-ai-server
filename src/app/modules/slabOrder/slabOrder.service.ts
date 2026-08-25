@@ -63,14 +63,15 @@ const createOrder = async (userId: string, payload: any) => {
   }
 
   const quantity = items.length;
-  const subtotal = items.reduce((sum, item) => sum + (item.price || UNIT_PRICE), 0);
-  
-  const isHardwareOrder = items.some((i: any) => i.cardName?.includes("PixelScope") || i.gradeLabel === "HARDWARE");
+  const subtotal = items.reduce(
+    (sum, item) => sum + (item.price || UNIT_PRICE) * (item.quantity || 1),
+    0,
+  );
 
-  let shippingFee = isHardwareOrder ? (payload.shippingFee ?? 0) : (payload.shippingFee ?? 5.95);
+  let shippingFee = payload.shippingFee ?? (subtotal >= 50 ? 0 : 5.95);
   let shippoData: any = undefined;
 
-  if (!isHardwareOrder && payload.shippingAddress) {
+  if (payload.shippingAddress) {
     try {
       const shippoResult = await ShippoService.getRatesForShipment(
         payload.shippingAddress,
@@ -89,7 +90,7 @@ const createOrder = async (userId: string, payload: any) => {
     }
   }
 
-  const taxAmount = isHardwareOrder ? (payload.taxAmount ?? 0) : Number((subtotal * TAX_RATE).toFixed(2));
+  const taxAmount = payload.taxAmount ?? Number((subtotal * TAX_RATE).toFixed(2));
   const totalAmount = Number((subtotal + shippingFee + taxAmount).toFixed(2));
 
   const primarySlab = items[0]?.slab;
