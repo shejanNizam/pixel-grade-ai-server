@@ -34,6 +34,17 @@ describe("grading normalise", () => {
     expect(result.scoreSurface).toBe(0);
   });
 
+  it("caps confidence at 85 for standard phone photo uploads", () => {
+    const result = normalise(
+      { ...base, confidence: 95 },
+      "pixelgrade-v2",
+      {},
+      "standard",
+    );
+
+    expect(result.confidence).toBe(85);
+  });
+
   it("keeps well-formed defects", () => {
     const result = normalise(
       {

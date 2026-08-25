@@ -71,7 +71,7 @@ export const createSlabCheckoutSession = async ({
       price_data: {
         currency: "usd",
         product_data: {
-          name: `${i.name} Custom Physical Slab`,
+          name: i.name.includes("PixelScope") ? i.name : `${i.name} Custom Physical Slab`,
         },
         unit_amount: Math.round(i.amountInCents),
       },

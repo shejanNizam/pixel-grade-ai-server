@@ -1,12 +1,13 @@
 import { Document, Types } from "mongoose";
 
 export interface ICartItem {
-  slab: Types.ObjectId;
+  slab?: Types.ObjectId;
   cardName: string;
   grade: number;
   gradeLabel: string;
   compositeUrl: string;
   price: number;
+  quantity?: number;
   addedAt: Date;
 }
 

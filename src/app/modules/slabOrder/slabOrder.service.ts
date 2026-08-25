@@ -33,12 +33,12 @@ const createOrder = async (userId: string, payload: any) => {
 
   if (Array.isArray(payload.items) && payload.items.length > 0) {
     items = payload.items.map((i: any) => ({
-      slab: i.slab || i.slabId,
-      cardName: i.cardName || "Custom Slab",
-      grade: i.grade || 10,
-      gradeLabel: i.gradeLabel || "GEM-MINT",
-      compositeUrl: i.compositeUrl || "",
-      price: i.price || UNIT_PRICE,
+      ...(i.slab || i.slabId ? { slab: i.slab || i.slabId } : {}),
+      cardName: i.cardName || "PixelScope Digital Magnifier",
+      grade: i.grade ?? 10,
+      gradeLabel: i.gradeLabel || "HARDWARE",
+      compositeUrl: i.compositeUrl || "/assets/pixelscope/hero.jpg",
+      price: i.price ?? 69.99,
     }));
   } else {
     const targetId = payload.slabId || payload.slab || payload.slabLabel;
@@ -59,17 +59,18 @@ const createOrder = async (userId: string, payload: any) => {
   }
 
   if (items.length === 0) {
-    throw new AppError(httpStatus.BAD_REQUEST, "Order must contain at least one custom slab item.");
+    throw new AppError(httpStatus.BAD_REQUEST, "Order must contain at least one item.");
   }
 
   const quantity = items.length;
   const subtotal = items.reduce((sum, item) => sum + (item.price || UNIT_PRICE), 0);
   
-  // Calculate Shippo rates if address is provided
-  let shippingFee = payload.shippingFee ?? 5.95;
+  const isHardwareOrder = items.some((i: any) => i.cardName?.includes("PixelScope") || i.gradeLabel === "HARDWARE");
+
+  let shippingFee = isHardwareOrder ? (payload.shippingFee ?? 0) : (payload.shippingFee ?? 5.95);
   let shippoData: any = undefined;
 
-  if (payload.shippingAddress) {
+  if (!isHardwareOrder && payload.shippingAddress) {
     try {
       const shippoResult = await ShippoService.getRatesForShipment(
         payload.shippingAddress,
@@ -88,7 +89,7 @@ const createOrder = async (userId: string, payload: any) => {
     }
   }
 
-  const taxAmount = Number((subtotal * TAX_RATE).toFixed(2));
+  const taxAmount = isHardwareOrder ? (payload.taxAmount ?? 0) : Number((subtotal * TAX_RATE).toFixed(2));
   const totalAmount = Number((subtotal + shippingFee + taxAmount).toFixed(2));
 
   const primarySlab = items[0]?.slab;

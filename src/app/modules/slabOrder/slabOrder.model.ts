@@ -16,10 +16,10 @@ const ShippingAddressSchema = new Schema(
 
 const SlabOrderItemSchema = new Schema(
   {
-    slab: { type: Schema.Types.ObjectId, ref: "SlabLabel", required: true },
+    slab: { type: Schema.Types.ObjectId, ref: "SlabLabel", required: false },
     cardName: { type: String, required: true },
-    grade: { type: Number, required: true },
-    gradeLabel: { type: String, required: true },
+    grade: { type: Number, required: true, default: 10 },
+    gradeLabel: { type: String, required: true, default: "HARDWARE" },
     compositeUrl: { type: String, required: true },
     price: { type: Number, required: true, default: 24.99 },
   },

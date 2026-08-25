@@ -15,47 +15,79 @@ const getCart = async (userId: string) => {
   return cart;
 };
 
-const addToCart = async (userId: string, slabId: string) => {
-  const slab = await SlabLabel.findById(slabId);
-  if (!slab) {
-    throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
-  }
-
-  const report = await GradingReport.findById(slab.report);
-  if (!report) {
-    throw new AppError(httpStatus.NOT_FOUND, "Grading report not found");
-  }
-
-  const card = await Card.findById(report.card);
-  const cardName = card?.name ?? "Custom Slab";
-  const compositeUrl = slab.compositeUrl ?? slab.exportPngUrl ?? "";
-
+const addToCart = async (userId: string, payload: any) => {
   let cart = await Cart.findOne({ user: userId });
   if (!cart) {
     cart = await Cart.create({ user: userId, items: [] });
   }
 
-  // Each custom slab is Quantity 1 per spec. Avoid duplicate slab entry if already in cart.
-  const existingIndex = cart.items.findIndex(
-    (item) => item.slab.toString() === slabId,
-  );
+  const slabId = typeof payload === "string" ? payload : payload?.slabId;
+  const isHardware = payload?.itemType === "hardware" || payload?.cardName?.includes("PixelScope");
 
-  if (existingIndex > -1) {
-    // Update compositeUrl / pricing if re-generated
-    cart.items[existingIndex].compositeUrl = compositeUrl;
-    cart.items[existingIndex].cardName = cardName;
-    cart.items[existingIndex].grade = report.grade;
-    cart.items[existingIndex].gradeLabel = report.gradeLabel;
+  const reqQuantity = Math.max(1, Number(payload?.quantity) || 1);
+
+  if (isHardware || (!slabId && payload?.cardName)) {
+    const cardName = payload?.cardName || "PixelScope Digital Magnifier";
+    const compositeUrl = payload?.compositeUrl || "/assets/pixelscope/pixelscope_image_one.PNG";
+    const price = payload?.price || 69.99;
+
+    const existingIndex = cart.items.findIndex(
+      (item) => item.cardName === cardName
+    );
+
+    if (existingIndex > -1) {
+      cart.items[existingIndex].price = price;
+      cart.items[existingIndex].compositeUrl = compositeUrl;
+      cart.items[existingIndex].quantity = (cart.items[existingIndex].quantity || 1) + reqQuantity;
+    } else {
+      cart.items.push({
+        cardName,
+        grade: 10,
+        gradeLabel: "HARDWARE",
+        compositeUrl,
+        price,
+        quantity: reqQuantity,
+        addedAt: new Date(),
+      } as any);
+    }
+  } else if (slabId) {
+    const slab = await SlabLabel.findById(slabId);
+    if (!slab) {
+      throw new AppError(httpStatus.NOT_FOUND, "Slab label not found");
+    }
+
+    const report = await GradingReport.findById(slab.report);
+    if (!report) {
+      throw new AppError(httpStatus.NOT_FOUND, "Grading report not found");
+    }
+
+    const card = await Card.findById(report.card);
+    const cardName = card?.name ?? "Custom Slab";
+    const compositeUrl = slab.compositeUrl ?? slab.exportPngUrl ?? "";
+
+    // Each custom slab is Quantity 1 per spec. Avoid duplicate slab entry if already in cart.
+    const existingIndex = cart.items.findIndex(
+      (item) => item.slab && item.slab.toString() === slabId,
+    );
+
+    if (existingIndex > -1) {
+      cart.items[existingIndex].compositeUrl = compositeUrl;
+      cart.items[existingIndex].cardName = cardName;
+      cart.items[existingIndex].grade = report.grade;
+      cart.items[existingIndex].gradeLabel = report.gradeLabel;
+    } else {
+      cart.items.push({
+        slab: slab._id as any,
+        cardName,
+        grade: report.grade,
+        gradeLabel: report.gradeLabel,
+        compositeUrl,
+        price: UNIT_PRICE,
+        addedAt: new Date(),
+      });
+    }
   } else {
-    cart.items.push({
-      slab: slab._id as any,
-      cardName,
-      grade: report.grade,
-      gradeLabel: report.gradeLabel,
-      compositeUrl,
-      price: UNIT_PRICE,
-      addedAt: new Date(),
-    });
+    throw new AppError(httpStatus.BAD_REQUEST, "Invalid item payload for cart.");
   }
 
   await cart.save();

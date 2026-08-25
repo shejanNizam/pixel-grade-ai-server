@@ -481,7 +481,7 @@ export const normalise = (
   const finalGradeLabel = getGradeLabel(finalGrade);
 
   // Standard phone photo uploads are capped at 85% max confidence ceiling to reflect real-world photo limitations
-  const maxConfidence = source === "pixelscope" ? 100 : 85;
+  const maxConfidence = source === "standard" ? 85 : 100;
 
   return {
     grade: finalGrade,

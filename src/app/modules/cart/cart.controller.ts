@@ -19,9 +19,7 @@ const getCart = catchAsync(async (req: Request, res: Response) => {
 
 const addToCart = catchAsync(async (req: Request, res: Response) => {
   const { _id: userId } = req.user as JwtPayload;
-  const { slabId } = req.body;
-
-  const result = await CartService.addToCart(userId as string, slabId);
+  const result = await CartService.addToCart(userId as string, req.body);
 
   sendResponse(res, {
     statusCode: httpStatus.OK,
