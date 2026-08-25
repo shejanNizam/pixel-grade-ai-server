@@ -26,6 +26,8 @@ export interface GradingInput {
   imageUrls: string[];
   cardName?: string;
   cardSet?: string;
+  /** Upload source: 'pixelscope' vs 'standard' */
+  source?: string;
 }
 
 /** Which of the four graded dimensions a defect belongs to. */
@@ -330,8 +332,8 @@ than 0.5, and any severe defect caps it at 6 or below.
 
 STEP 9 — SET CONFIDENCE HONESTLY.
 Confidence reflects how much the IMAGES support a firm, conclusive condition judgement.
-When PixelScope or multi-image macro close-ups are provided alongside full card photos, the extra detail increases grading certainty. If key card areas are visible and inspectable, confidence should score HIGH (90-100%).
-Only reduce confidence if images are severely out-of-focus, completely obscured, or key card sides/regions are entirely missing.
+- For PixelScope Macro Scans: High-magnification detail photos allow precise inspection. Confidence can score HIGH (90-100%) when card details are clearly visible.
+- For Standard Phone Uploads: The AI MUST differentiate and NEVER assume PixelScope was used. Camera lighting, glare, reflections, and non-flat angles reduce certainty. Standard phone photos MUST score confidence conservatively in the moderate/cautious range (60-85%) and must never exceed 85%.
 
 STEP 10 — EXPLAIN.
 reasoning must say why the overall grade landed where it did, naming the defects
@@ -347,25 +349,31 @@ fails; do not explain the inconsistency, correct it.
   - The overall grade is no more than 0.5 above the lowest sub-score.
   - Any severe defect has capped the overall grade at 6 or below.
   - scoreCentering matches the measured ratios, not an impression.
-  - confidence is >= 90% for clear multi-image / PixelScope macro inspections.
+  - For PixelScope macro scans: confidence is >= 90% when clear detail photos are inspectable.
+  - For standard phone uploads: confidence is <= 85% and reflects real-world image limitations (glare, angle, lighting).
 
 Report only what is visible. Never infer condition from the card's identity,
 rarity, or market value. Be internally consistent: the sub-scores, the defect
 list, the overall grade, and the reasoning must all tell the same story.`;
 
-export const buildUserPrompt = (input: GradingInput): string =>
-  [
+export const buildUserPrompt = (input: GradingInput): string => {
+  const isPixelScope = input.source === "pixelscope";
+  const noteOnImages = isPixelScope
+    ? "Note on images: This upload is a PixelScope hardware macro inspection scan (full card overview + high-magnification macro detail photos). High confidence (90-100%) is appropriate when card details are clear."
+    : "Note on images: This upload is a STANDARD REGULAR PHONE PHOTO upload (NOT PixelScope). Do NOT assume PixelScope macro hardware was used. Regular phone photos carry limitations like glare, reflections, and lighting. Evaluate confidence conservatively (60-85% max) reflecting real-world photo uncertainty.";
+
+  return [
     input.cardName ? `Card: ${input.cardName}` : null,
     input.cardSet ? `Set: ${input.cardSet}` : null,
     `Total Images Provided: ${input.imageUrls.length}`,
-    input.imageUrls.length > 2
-      ? "Note on images: This upload includes PixelScope macro inspection close-ups (full card overview + high-magnification detail photos). Macro crops and close-ups are deliberate detail scans for precision inspection. Inspect ALL images carefully and provide HIGH confidence (90-100%) when card details are visible."
-      : "Note on images: The provided images include overall views (front and back) as well as close-up macro inspection photos of corners, edges, and surface. Inspect ALL images carefully.",
+    `Upload Source: ${isPixelScope ? "PixelScope Macro Hardware" : "Standard Regular Phone Photo"}`,
+    noteOnImages,
     "",
     "Grade this card from the images above.",
   ]
     .filter((line) => line !== null)
     .join("\n");
+};
 
 export const clamp = (n: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, n));
@@ -453,6 +461,7 @@ export const normalise = (
   parsed: Record<string, unknown>,
   modelVersion: string,
   raw: unknown,
+  source?: string,
 ): GradingOutput => {
   const scoreSurface = clamp(Number(parsed.scoreSurface), 0, 10);
   const scoreCorners = clamp(Number(parsed.scoreCorners), 0, 10);
@@ -471,6 +480,9 @@ export const normalise = (
 
   const finalGradeLabel = getGradeLabel(finalGrade);
 
+  // Standard phone photo uploads are capped at 85% max confidence ceiling to reflect real-world photo limitations
+  const maxConfidence = source === "pixelscope" ? 100 : 85;
+
   return {
     grade: finalGrade,
     gradeLabel: finalGradeLabel,
@@ -478,7 +490,7 @@ export const normalise = (
     scoreCorners,
     scoreEdges,
     scoreCentering,
-    confidence: clamp(Number(parsed.confidence), 0, 100),
+    confidence: clamp(Number(parsed.confidence), 0, maxConfidence),
     reasoning: String(parsed.reasoning ?? ""),
     imageQuality: normaliseImageQuality(parsed.imageQuality),
     centering: normaliseCentering(parsed.centering),

@@ -133,6 +133,7 @@ const gradeAnalysis = async (userId: string, analysisId: string) => {
         imageUrls: images.map((i) => i.imageUrl),
         cardName: card?.name,
         cardSet: card?.setExpansion,
+        source: analysis.source,
       });
       result = fresh;
       await writeCache(key, fresh);

@@ -120,7 +120,7 @@ const grade = async (input: GradingInput): Promise<GradingOutput> => {
     );
   }
 
-  return normalise(parsed, configs.GRADING.model_version, response);
+  return normalise(parsed, configs.GRADING.model_version, response, input.source);
 };
 
 export const OpenAIGradingProvider: IGradingProvider = {
