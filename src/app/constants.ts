@@ -132,14 +132,24 @@ export const SLAB_EXPORT_DPI = 300;
  * product. Together they set the worst case: the brightest possible backdrop
  * (white) is multiplied to `BAND_FROST_BRIGHTNESS`, then composited under a
  * scrim of `BAND_SCRIM_OPACITY` near-black, which lands white body text at
- * about 8.4:1 contrast — comfortably past the 4.5:1 floor with room for print
+ * about 18:1 contrast — comfortably past the 4.5:1 floor with room for print
  * dot gain. Raising either value to show more of the scene eats that margin,
  * so re-check the contrast maths before touching them; `slabComposite.test.ts`
  * pins the arithmetic.
+ *
+ * 2026-08-25: darkened from 0.55 / 0.45 to match the client's reference band,
+ * which reads as near-black. The direction was "keep the glass, take it much
+ * closer to black", so the treatment is unchanged and only the two numbers
+ * moved. Note which way this cuts: the contrast floor gets STRICTLY better
+ * (~8.4:1 → ~18:1). What it spends is the other half of the 2026-07-30 note —
+ * how much scene survives — and that is now the constraint to watch. A
+ * mid-grey backdrop contributes ~9 of the band's ~18 levels, so the artwork is
+ * still half of what is drawn there; push either number further and the band
+ * becomes the flat plate the client rejected.
  */
 export const BAND_FROST_BLUR_SIGMA = 18;
-export const BAND_FROST_BRIGHTNESS = 0.55;
-export const BAND_SCRIM_OPACITY = 0.45;
+export const BAND_FROST_BRIGHTNESS = 0.34;
+export const BAND_SCRIM_OPACITY = 0.8;
 
 /** Full-bleed export canvas in pixels, at SLAB_EXPORT_DPI — (80+6) × (136+6) mm.
  *  Derived from SLAB_DEFAULTS; kept as a literal for the frontend preview and

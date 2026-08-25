@@ -5,6 +5,8 @@ import {
   SLAB_DEFAULTS,
 } from "../app/constants";
 import {
+  bandCaptionLead,
+  bandColumns,
   bandRadius,
   bandRails,
   bandRowLead,
@@ -77,7 +79,17 @@ const ADVANCE: Record<string, number> = {
   micro: 0.55,
   grade: 0.6,
   glabel: 0.78,
-  verified: 0.78,
+  // 0.56, measured. This sat at 0.78 — the generic bold-caps figure — against
+  // a run that rasterises at 0.508em per character in DejaVu Sans Bold, so the
+  // test modelled "PIXEL VERIFIED" as ~35% wider than it draws. That is the
+  // same class of error as the handle above, pointed the other way: an estimate
+  // too PESSIMISTIC reports clearance as a collision, and the cost is that the
+  // badge has to be kept artificially small to satisfy a number no renderer
+  // agrees with. Both directions are only fixable by measuring.
+  verified: 0.56,
+  // The Pixel ID value, uppercase alphanumeric: 0.554em bare. Was drawn in the
+  // `meta` class until 2026-08-25 and inherited its mixed-case figure.
+  idvalue: 0.62,
 };
 
 /** Reads `letter-spacing: Npx` for a class out of the SVG's <style> block. */
@@ -141,17 +153,30 @@ const qrPlateOf = (svg: string) => {
 
 const rails = bandRails(layout.labelY, layout.labelHeight);
 const lead = bandRowLead(layout.labelHeight);
+const capLead = bandCaptionLead(layout.labelHeight);
 
-// Column geometry, mirroring slab.composite.ts. The card-information column's
-// left edge identifies its rows: `meta` and `micro` are also used by the QR
-// column, and filtering on class alone would mix the two columns' rows.
-const bandPadX = Math.round(layout.labelWidth * 0.035);
-const bandInner = layout.labelWidth - bandPadX * 2;
-const infoX =
-  layout.labelX +
-  bandPadX +
-  Math.round(bandInner * 0.17) +
-  Math.round(bandPadX * 0.6);
+// Column geometry, IMPORTED from slab.composite.ts rather than re-derived here.
+// It used to be a hand-copied set of fractions, and it silently drifted every
+// time a column width moved: the copy still measured a coherent band, just not
+// the one being drawn, so the collision assertions below went on passing while
+// checking nothing. The card-information column's left edge identifies its rows
+// — `meta` and `micro` are also used by the QR column, and filtering on class
+// alone would mix the two columns' rows.
+const cols = bandColumns(layout.labelX, layout.labelWidth);
+const { infoX } = cols;
+
+/** The Pixel Verified mark and the gap between it and its words. Mirrors the
+ *  two figures in `buildTextLayer`; the badge is laid out as one unit — icon,
+ *  gap, text — so any assertion about where it starts has to add them back. */
+const badgeIcon = Math.round(layout.labelHeight * 0.096);
+const badgeIconGap = Math.round(badgeIcon * 0.35);
+
+/** Top of the Pixel Verified disc, read off the group's own transform. */
+const iconTopOf = (svg: string): number => {
+  const m = /<g transform="translate\([\d.]+ ([\d.]+)\) scale\(/.exec(svg);
+  if (!m) throw new Error("Expected the band to contain the Pixel Verified mark");
+  return Number(m[1]);
+};
 
 /** Everything in the band carries a data URI, so the avatar and the QR render
  *  as `<image>` rather than falling back to the initial disc. */
@@ -234,13 +259,8 @@ describe("slab label band", () => {
       );
       const { left, right } = extentOf(handle);
 
-      // Column geometry, mirroring slab.composite.ts.
-      const padX = Math.round(layout.labelWidth * 0.035);
-      const ownerX = layout.labelX + padX;
-      const ownerW = Math.round((layout.labelWidth - padX * 2) * 0.17);
-
-      expect(left).toBeGreaterThanOrEqual(ownerX - 1);
-      expect(right).toBeLessThanOrEqual(ownerX + ownerW + 1);
+      expect(left).toBeGreaterThanOrEqual(cols.ownerX - 1);
+      expect(right).toBeLessThanOrEqual(cols.ownerX + cols.ownerW + 1);
     }
   });
 
@@ -357,14 +377,12 @@ describe("slab label band", () => {
       "the Pixel ID",
     );
 
-    // The badge is drawn from its left edge with the shield ahead of it, so the
+    // The badge is drawn from its left edge with the icon ahead of it, so the
     // icon's own width has to be carried into the measurement.
-    const shieldSize = Math.round(layout.labelHeight * 0.075);
-    const shieldGap = Math.round(shieldSize * 0.35);
     const badgeRight = extentOf(badge).right;
 
     expect(badgeRight).toBeLessThanOrEqual(extentOf(id).left);
-    expect(extentOf(badge).left - shieldSize - shieldGap).toBeGreaterThan(
+    expect(extentOf(badge).left - badgeIcon - badgeIconGap).toBeGreaterThan(
       layout.labelX,
     );
   });
@@ -379,19 +397,97 @@ describe("slab label band", () => {
       "the Pixel Verified badge",
     );
 
-    // Column geometry, mirroring slab.composite.ts.
-    const padX = Math.round(layout.labelWidth * 0.035);
-    const gap = Math.round(padX * 0.6);
-    const inner = layout.labelWidth - padX * 2;
-    const qrColLeft = layout.labelX + layout.labelWidth - padX - Math.round(inner * 0.17);
-    const gradeLeft = qrColLeft - gap - Math.round(inner * 0.21);
-    const shieldSize = Math.round(layout.labelHeight * 0.075);
-    const shieldGap = Math.round(shieldSize * 0.35);
-
-    // The shield leads the run, so the badge's true left edge is the icon's.
-    expect(extentOf(badge).left - shieldSize - shieldGap).toBeGreaterThanOrEqual(
-      gradeLeft - gap / 2,
+    // The icon leads the run, so the badge's true left edge is the icon's.
+    expect(extentOf(badge).left - badgeIcon - badgeIconGap).toBeGreaterThanOrEqual(
+      cols.gradeLeft - cols.gap / 2,
     );
+  });
+
+  it("rules every column boundary, to one shared depth", () => {
+    // Three rules, not one (2026-08-25, matching the client's reference band).
+    // The depth is the point as much as the count: three rules ending at three
+    // different places is the ragged strip the rails were introduced to fix,
+    // turned ninety degrees, and it is invisible in any single column.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const rules = [
+      ...svg.matchAll(
+        /<line x1="([\d.]+)" y1="([\d.]+)" x2="([\d.]+)" y2="([\d.]+)"/g,
+      ),
+    ].map((m) => ({
+      x: Number(m[1]),
+      top: Number(m[2]),
+      bottom: Number(m[4]),
+    }));
+
+    expect(rules).toHaveLength(3);
+    for (const rule of rules) {
+      expect(rule.top).toBe(rails.top);
+      expect(rule.bottom).toBe(rules[0].bottom);
+      // A rule taken to the band's floor leaves a stub hanging below every
+      // column it brackets — the floor belongs to the QR column alone.
+      expect(rule.bottom).toBeLessThan(rails.bottom);
+    }
+
+    // One per boundary, each sitting in the gap between the columns it divides.
+    expect(rules.map((r) => r.x)).toEqual([
+      infoX - cols.gap / 2,
+      cols.gradeLeft - cols.gap / 2,
+      cols.qrColLeft - cols.gap / 2,
+    ]);
+  });
+
+  it("sets the Pixel ID's caption above its value, not the other way round", () => {
+    // The caption is what tells a reader what the string IS, and the string is
+    // a machine identifier beneath a code that resolves the same page. Until
+    // 2026-08-25 the value was the larger and both were full white, which made
+    // the band's densest column compete with the grade.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts } = boxesOf(svg);
+
+    const caption = requireText(
+      texts,
+      (t) => t.value === "PIXEL ID",
+      "the PIXEL ID caption",
+    );
+    const value = requireText(
+      texts,
+      (t) => t.value === baseText.pixelId,
+      "the Pixel ID",
+    );
+
+    expect(value.size).toBeLessThan(caption.size);
+    expect(value.cls).toBe("idvalue");
+    // Muted, but not so muted it stops being transcribable by hand — that is
+    // the fallback when someone cannot scan the code.
+    expect(svg).toMatch(/\.idvalue\s*\{[^}]*fill:\s*#A9AEB8/);
+  });
+
+  it("draws the Pixel Verified mark as a disc, legible at 2 mm", () => {
+    // A shield's silhouette is mush at this size; the whole point of a mark
+    // this small is that it is recognisable at a glance.
+    const svg = buildTextLayer(layout, fullText).toString();
+
+    expect(svg).toContain('<circle cx="12" cy="12" r="11" fill="#8B5CF6" />');
+  });
+
+  it("centres the badge's words on its mark rather than sharing a cap line", () => {
+    // A 23 px disc and a 15 px word hung from one top read as the word having
+    // slipped down. Every OTHER row in the band shares a cap top; this is the
+    // one place that rule does not apply, so it is worth pinning.
+    const svg = buildTextLayer(layout, fullText).toString();
+    const { texts } = boxesOf(svg);
+
+    const badge = requireText(
+      texts,
+      (t) => t.cls === "verified",
+      "the Pixel Verified badge",
+    );
+
+    const iconTop = iconTopOf(svg);
+    const iconCentre = iconTop + badgeIcon / 2;
+    const textCentre = badge.baseline - (badge.size * CAP_RATIO) / 2;
+
+    expect(Math.abs(textCentre - iconCentre)).toBeLessThanOrEqual(1);
   });
 
   it("draws the shield only for a genuinely verified report", () => {
@@ -521,6 +617,12 @@ describe("slab label band vertical rails", () => {
     // Client, 2026-08-24: "can you move up the NM info more higher up". The
     // word names the numeral; spread over the band it sat ~2.5 mm clear of it
     // and read as an unrelated caption.
+    //
+    // The bound is `bandRowLead`, not a figure of its own. What this is really
+    // asserting is that the pair is set TIGHTER than an ordinary step down a
+    // column — which is the client's note — and pinning the exact fraction
+    // instead is what made this fail when the word nearly doubled in size on
+    // 2026-08-25 and its lead had to grow with it.
     const svg = buildTextLayer(layout, fullText).toString();
     const { texts } = boxesOf(svg);
 
@@ -531,17 +633,24 @@ describe("slab label band vertical rails", () => {
       "the grade label",
     );
 
-    const lead = word.capTop - grade.baseline;
+    const gradeLead = word.capTop - grade.baseline;
 
-    expect(lead).toBeGreaterThan(0);
-    expect(lead).toBeLessThanOrEqual(Math.round(layout.labelHeight * 0.035) + 1);
+    expect(gradeLead).toBeGreaterThan(0);
+    expect(gradeLead).toBeLessThan(lead);
   });
 
   it("tucks the handle under the avatar instead of sinking it to the floor", () => {
     // The first pass at the rails pulled every column's last row down onto
     // `rails.bottom`, which put ~6 mm of nothing between the avatar and the
-    // handle that captions it. Client, same round: "between profile image and
+    // handle that captions it. Client, 2026-08-24: "between profile image and
     // @username decrease the gap as before."
+    //
+    // Tightened again on 2026-08-25 to the CAPTION lead ("the gap is too much,
+    // need minimal space"). This column's head is an image, and that is why it
+    // is the one head that does not take `bandRowLead`: a disc's drawn edge is
+    // its measured edge, where a word carries sidebearings and a descender
+    // below the cap height it is measured by — so the same lead buys visibly
+    // more air under a disc than under a name.
     const svg = buildTextLayer(layout, fullText).toString();
     const { texts, images } = boxesOf(svg);
 
@@ -552,49 +661,62 @@ describe("slab label band vertical rails", () => {
       "the owner handle",
     );
 
-    expect(Math.abs(handle.capTop - avatarBottom - lead)).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(handle.capTop - avatarBottom - capLead),
+    ).toBeLessThanOrEqual(1);
+    // Tighter than the card name's step down, which is the point.
+    expect(handle.capTop - avatarBottom).toBeLessThan(lead);
   });
+
+  /** The card-information column's rows, in draw order. */
+  const infoRowsOf = (svg: string) =>
+    boxesOf(svg).texts.filter(
+      (t) => ["name", "meta", "micro"].includes(t.cls) && t.x === infoX,
+    );
+
+  /**
+   * The column's two leads: `bandRowLead` below the card NAME, which is this
+   * column's head, and the tighter `bandCaptionLead` between every row after
+   * it. ±1 because baselines are rounded to whole pixels and cap heights are
+   * not.
+   */
+  const expectColumnRhythm = (rows: ReturnType<typeof infoRowsOf>) => {
+    for (let i = 1; i < rows.length; i++) {
+      const gap = rows[i].capTop - rows[i - 1].baseline;
+      expect(Math.abs(gap - (i === 1 ? lead : capLead))).toBeLessThanOrEqual(1);
+    }
+  };
 
   it("sets the card's set and number tight under its name", () => {
     // Client, same round: "below card name address and language … remove much
     // space". Spread to the floor the three rows read as unrelated lines rather
     // than as one card's details.
-    const svg = buildTextLayer(layout, fullText).toString();
-    const { texts } = boxesOf(svg);
-
-    const rows = texts.filter((t) =>
-      ["name", "meta", "micro"].includes(t.cls) && t.x === infoX,
-    );
+    const rows = infoRowsOf(buildTextLayer(layout, fullText).toString());
 
     expect(rows).toHaveLength(3);
-    for (let i = 1; i < rows.length; i++) {
-      // ±1: baselines are rounded to whole pixels, cap heights are not.
-      expect(
-        Math.abs(rows[i].capTop - rows[i - 1].baseline - lead),
-      ).toBeLessThanOrEqual(1);
-    }
+    expectColumnRhythm(rows);
   });
 
-  it("keeps the same leading whether the set name wraps to two rows", () => {
-    // The old fixed fractions carried a separate y for the one-line and
-    // two-line cases and had to be re-tuned by hand whenever a row was added.
+  it("holds a wrapped set name together as one name, not two rows", () => {
+    // The set line wraps to two rows, and at 2026-08-25 both steps in this
+    // column were `bandRowLead` — so "Crown Zenith" and "Galarian Gallery" were
+    // spaced exactly as far apart as the card's name was from its set, and the
+    // one name read as two unrelated lines. The caption lead is what binds
+    // them. This is the assertion the uniform-leading version could not make.
     const svg = buildTextLayer(layout, {
       ...fullText,
       setExpansion: "Scarlet & Violet Paldean Fates Special Set",
     }).toString();
-    const { texts } = boxesOf(svg);
-
-    const rows = texts.filter((t) =>
-      ["name", "meta", "micro"].includes(t.cls) && t.x === infoX,
-    );
+    const rows = infoRowsOf(svg);
 
     expect(rows).toHaveLength(4);
-    for (let i = 1; i < rows.length; i++) {
-      // ±1: baselines are rounded to whole pixels, cap heights are not.
-      expect(
-        Math.abs(rows[i].capTop - rows[i - 1].baseline - lead),
-      ).toBeLessThanOrEqual(1);
-    }
+    expectColumnRhythm(rows);
+
+    // Explicitly: the wrapped pair is closer together than the name is to it.
+    const headStep = rows[1].capTop - rows[0].baseline;
+    const wrapStep = rows[2].capTop - rows[1].baseline;
+
+    expect(wrapStep).toBeLessThan(headStep);
   });
 
   it("keeps the Pixel ID on the floor — the QR column is the one that reaches it", () => {
@@ -676,8 +798,15 @@ describe("label band frosting", () => {
     // The mirror of the test above: a scrim opaque enough to guarantee any
     // contrast would also hide the scene, which is the thing the client
     // rejected. Mid-grey artwork must survive to a visible level.
+    //
+    // The floor moved 12 → 6 when the band was darkened to match the client's
+    // reference on 2026-08-25. Read it against what it is protecting rather
+    // than as a number: the scrim's own near-black contributes ~9 levels, so at
+    // 8.7 a mid-grey backdrop is still HALF of what is drawn in the band, and
+    // the panel carries the artwork's colour. Below ~6 the scene stops being
+    // half of anything and the band is the flat plate again.
     const midGrey = 128 * BAND_FROST_BRIGHTNESS * (1 - BAND_SCRIM_OPACITY);
-    expect(midGrey).toBeGreaterThan(12);
+    expect(midGrey).toBeGreaterThan(6);
   });
 
   it("returns a band-sized, rounded, opaque-cornered panel", async () => {
