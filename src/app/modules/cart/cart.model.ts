@@ -8,7 +8,7 @@ const cartItemSchema = new Schema<ICartItem>(
     grade: { type: Number, required: true, default: 10 },
     gradeLabel: { type: String, required: true, default: "HARDWARE" },
     compositeUrl: { type: String, required: true },
-    price: { type: Number, required: true, default: 24.99 },
+    price: { type: Number, required: true, default: 5.99 },
     quantity: { type: Number, required: true, default: 1, min: 1 },
     addedAt: { type: Date, default: Date.now },
   },

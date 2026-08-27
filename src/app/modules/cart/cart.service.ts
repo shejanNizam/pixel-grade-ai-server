@@ -11,6 +11,18 @@ const getCart = async (userId: string) => {
   let cart = await Cart.findOne({ user: userId });
   if (!cart) {
     cart = await Cart.create({ user: userId, items: [] });
+  } else {
+    // Auto-migrate legacy custom slab items from $24.99 to $5.99
+    let updated = false;
+    cart.items.forEach((item) => {
+      if (item.gradeLabel !== "HARDWARE" && item.price === 24.99) {
+        item.price = UNIT_PRICE;
+        updated = true;
+      }
+    });
+    if (updated) {
+      await cart.save();
+    }
   }
   return cart;
 };
@@ -71,6 +83,7 @@ const addToCart = async (userId: string, payload: any) => {
     );
 
     if (existingIndex > -1) {
+      cart.items[existingIndex].price = UNIT_PRICE;
       cart.items[existingIndex].compositeUrl = compositeUrl;
       cart.items[existingIndex].cardName = cardName;
       cart.items[existingIndex].grade = report.grade;
