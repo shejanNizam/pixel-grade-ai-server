@@ -457,9 +457,8 @@ describe("slab label band", () => {
 
     expect(value.size).toBeLessThan(caption.size);
     expect(value.cls).toBe("idvalue");
-    // Muted, but not so muted it stops being transcribable by hand — that is
-    // the fallback when someone cannot scan the code.
-    expect(svg).toMatch(/\.idvalue\s*\{[^}]*fill:\s*#A9AEB8/);
+    // Updated fill to crisp #FFFFFF per client print legibility request
+    expect(svg).toMatch(/\.idvalue\s*\{[^}]*fill:\s*#FFFFFF/);
   });
 
   it("draws the Pixel Verified mark as a disc, legible at 2 mm", () => {

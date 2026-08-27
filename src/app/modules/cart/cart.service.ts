@@ -5,7 +5,7 @@ import { GradingReport } from "../grading/grading.model";
 import { Card } from "../card/card.model";
 import { Cart } from "./cart.model";
 
-const UNIT_PRICE = 24.99;
+const UNIT_PRICE = 5.99;
 
 const getCart = async (userId: string) => {
   let cart = await Cart.findOne({ user: userId });

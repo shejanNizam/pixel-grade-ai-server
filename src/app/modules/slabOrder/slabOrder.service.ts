@@ -9,7 +9,7 @@ import { configs } from "../../config";
 import { sendEmail } from "../../utils/sendEmail";
 import { logger } from "../../utils/logger";
 
-const UNIT_PRICE = 24.99;
+const UNIT_PRICE = 5.99;
 const TAX_RATE = 0.085; // 8.50% tax per client spec
 
 /** Generates human-readable order number like #PG-10023 */
@@ -68,7 +68,7 @@ const createOrder = async (userId: string, payload: any) => {
     0,
   );
 
-  let shippingFee = payload.shippingFee ?? (subtotal >= 50 ? 0 : 5.95);
+  let shippingFee = subtotal >= 50 ? 0 : (payload.shippingFee ?? 5.95);
   let shippoData: any = undefined;
 
   if (payload.shippingAddress) {
@@ -78,7 +78,8 @@ const createOrder = async (userId: string, payload: any) => {
         quantity,
       );
       if (shippoResult.selectedRate) {
-        shippingFee = shippoResult.selectedRate.amount;
+        // Enforce $50+ free shipping rule: if subtotal >= 50, shipping is $0.00
+        shippingFee = subtotal >= 50 ? 0 : (payload.shippingFee ?? shippoResult.selectedRate.amount);
         shippoData = {
           shipmentId: shippoResult.shipmentId,
           rateId: shippoResult.selectedRate.rateId,
@@ -176,8 +177,8 @@ const createStripeCheckout = async (userId: string, payload: any) => {
         amountInCents: Math.round((i.price || UNIT_PRICE) * 100),
         quantity: 1,
       })),
-      shippingFee: order.shippingFee || shippingFee,
-      taxAmount: order.taxAmount || taxAmount,
+      shippingFee: typeof order.shippingFee === "number" ? order.shippingFee : shippingFee,
+      taxAmount: typeof order.taxAmount === "number" ? order.taxAmount : taxAmount,
       successUrl,
       cancelUrl,
       metadata: {

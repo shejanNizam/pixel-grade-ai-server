@@ -761,11 +761,11 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
 
   const svg = `<svg width="${layout.canvasWidth}" height="${layout.canvasHeight}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .handle { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
+    .handle { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; }
     .initials { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
     .name   { font-family: ${SERIF}; font-weight: 700; fill: #FFFFFF; }
     .meta   { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; }
-    .micro  { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 1px; }
+    .micro  { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; letter-spacing: 1px; }
     .grade  { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; }
     .glabel { font-family: ${SANS}; font-weight: 700; fill: #FFFFFF; letter-spacing: 2px; }
     /* No letter-spacing: this is the longest run in the narrowest column, and
@@ -776,7 +776,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
        Still ~7:1 on the darkened band, so this is hierarchy, not a legibility
        trade: the string has to stay readable to anyone typing it into /verify
        by hand when they cannot scan the code above it. */
-    .idvalue { font-family: ${SANS}; font-weight: 700; fill: #A9AEB8; }
+    .idvalue { font-family: ${SANS}; font-weight: 800; fill: #FFFFFF; }
   </style>
 
   <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
