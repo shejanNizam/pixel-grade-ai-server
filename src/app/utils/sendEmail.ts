@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import ejs from "ejs";
 import nodemailer from "nodemailer";
 import path from "path";
@@ -24,7 +23,7 @@ interface SendEmailOptions {
   to: string;
   subject: string;
   templateName: string;
-  templateData?: Record<string, any>;
+  templateData?: Record<string, unknown>;
   attachments?: {
     filename: string;
     content: Buffer | string;
@@ -58,12 +57,13 @@ export const sendEmail = async ({
       })),
     });
     logger.info(`Email sent to ${to}: ${info.messageId}`);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errObj = error as { message?: string; code?: string; command?: string; response?: string };
     logger.error("Email sending error", {
-      message: error.message,
-      code: error.code,
-      command: error.command,
-      response: error.response,
+      message: errObj.message,
+      code: errObj.code,
+      command: errObj.command,
+      response: errObj.response,
     });
     throw new AppError(502, "Email not sent");
   }

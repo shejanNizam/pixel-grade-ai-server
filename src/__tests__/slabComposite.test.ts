@@ -430,7 +430,7 @@ describe("slab label band", () => {
 
     // One per boundary, each sitting in the gap between the columns it divides.
     expect(rules.map((r) => r.x)).toEqual([
-      infoX - cols.gap / 2,
+      cols.leftDividerX,
       cols.gradeLeft - cols.gap / 2,
       cols.qrColLeft - cols.gap / 2,
     ]);

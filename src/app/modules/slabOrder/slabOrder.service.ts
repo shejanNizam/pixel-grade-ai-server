@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import httpStatus from "http-status";
 import AppError from "../../errorHelpers/AppError";
 import { SlabLabel } from "../slab/slab.model";
@@ -8,9 +9,30 @@ import { createSlabCheckoutSession, isStripeConfigured } from "../../services/st
 import { configs } from "../../config";
 import { sendEmail } from "../../utils/sendEmail";
 import { logger } from "../../utils/logger";
+import {
+  IShippingAddress,
+  IShippoInfo,
+  ISlabOrderItem,
+  TPaymentStatus,
+  TSlabOrderStatus,
+} from "./slabOrder.interface";
 
 const UNIT_PRICE = 5.99;
-const TAX_RATE = 0.085; // 8.50% tax per client spec
+const TAX_RATE = 0.0825; // 8.25% tax
+
+export interface ICreateOrderPayload {
+  items?: Record<string, unknown>[];
+  slabId?: string;
+  slab?: string;
+  slabLabel?: string;
+  shippingFee?: number;
+  shippingAddress?: IShippingAddress;
+  taxAmount?: number;
+  paymentStatus?: TPaymentStatus;
+  stripePaymentIntentId?: string;
+  notes?: string;
+  orderStatus?: TSlabOrderStatus;
+}
 
 /** Generates human-readable order number like #PG-10023 */
 const generateOrderNumber = async (): Promise<string> => {
@@ -25,29 +47,29 @@ const generateOrderNumber = async (): Promise<string> => {
   return orderNum;
 };
 
-const createOrder = async (userId: string, payload: any) => {
+const createOrder = async (userId: string, payload: ICreateOrderPayload) => {
   const orderNumber = await generateOrderNumber();
 
   // Support multi-item cart OR single slab fallback
-  let items: any[] = [];
+  let items: Partial<ISlabOrderItem>[] = [];
 
   if (Array.isArray(payload.items) && payload.items.length > 0) {
-    items = payload.items.map((i: any) => ({
-      ...(i.slab || i.slabId ? { slab: i.slab || i.slabId } : {}),
-      cardName: i.cardName || "PixelScope Digital Magnifier",
-      grade: i.grade ?? 10,
-      gradeLabel: i.gradeLabel || "HARDWARE",
-      compositeUrl: i.compositeUrl || "/assets/pixelscope/hero.jpg",
-      price: i.price ?? 69.99,
+    items = payload.items.map((i: Record<string, unknown>) => ({
+      ...(i.slab || i.slabId ? { slab: (i.slab || i.slabId) as unknown as Types.ObjectId } : {}),
+      cardName: (i.cardName as string) || "PixelScope Digital Magnifier",
+      grade: (i.grade as number) ?? 10,
+      gradeLabel: (i.gradeLabel as string) || "HARDWARE",
+      compositeUrl: (i.compositeUrl as string) || "/assets/pixelscope/hero.jpg",
+      price: (i.price as number) ?? 69.99,
     }));
   } else {
     const targetId = payload.slabId || payload.slab || payload.slabLabel;
     if (targetId) {
       const slab = await SlabLabel.findById(targetId).populate("report");
       if (slab) {
-        const report = slab.report as any;
+        const report = slab.report as unknown as { card?: { name?: string }; grade?: number; gradeLabel?: string };
         items.push({
-          slab: slab._id,
+          slab: slab._id as Types.ObjectId,
           cardName: report?.card?.name || "Custom Slab",
           grade: report?.grade || 10,
           gradeLabel: report?.gradeLabel || "GEM-MINT",
@@ -64,17 +86,26 @@ const createOrder = async (userId: string, payload: any) => {
 
   const quantity = items.length;
   const subtotal = items.reduce(
-    (sum, item) => sum + (item.price || UNIT_PRICE) * (item.quantity || 1),
+    (sum, item) => sum + (item.price || UNIT_PRICE) * 1,
     0,
   );
 
   let shippingFee = subtotal >= 50 ? 0 : (payload.shippingFee ?? 5.95);
-  let shippoData: any = undefined;
+  let shippoData: IShippoInfo | undefined = undefined;
 
   if (payload.shippingAddress) {
     try {
+      const shippoAddressInput = {
+        name: payload.shippingAddress.fullName || "Customer",
+        phone: payload.shippingAddress.phone,
+        street1: payload.shippingAddress.streetAddress,
+        city: payload.shippingAddress.city,
+        state: payload.shippingAddress.state || "",
+        zip: payload.shippingAddress.postalCode,
+        country: payload.shippingAddress.country || "US",
+      };
       const shippoResult = await ShippoService.getRatesForShipment(
-        payload.shippingAddress,
+        shippoAddressInput,
         quantity,
       );
       if (shippoResult.selectedRate) {
@@ -86,8 +117,8 @@ const createOrder = async (userId: string, payload: any) => {
           carrier: shippoResult.selectedRate.provider,
         };
       }
-    } catch (err: any) {
-      logger.warn("Shippo rate estimation warning:", err.message);
+    } catch (err: unknown) {
+      logger.warn("Shippo rate estimation warning:", (err as Error).message);
     }
   }
 
@@ -125,7 +156,7 @@ const createOrder = async (userId: string, payload: any) => {
   ]);
 
   // Send automated Order Received Confirmation Email (Email 1) upon successful payment
-  const userObj = populatedOrder.user as any;
+  const userObj = populatedOrder.user as unknown as { email?: string; name?: string; phone?: string };
   const recipientEmail = userObj?.email;
   if (recipientEmail) {
     try {
@@ -154,7 +185,7 @@ const createOrder = async (userId: string, payload: any) => {
 };
 
 /** Create Stripe Checkout Session for Physical Slab Order */
-const createStripeCheckout = async (userId: string, payload: any) => {
+const createStripeCheckout = async (userId: string, payload: ICreateOrderPayload) => {
   const { items, shippingFee = 5.95, taxAmount = 0 } = payload;
 
   if (!items || items.length === 0) {
@@ -172,9 +203,9 @@ const createStripeCheckout = async (userId: string, payload: any) => {
 
   if (isStripeConfigured()) {
     const session = await createSlabCheckoutSession({
-      items: (order.items || []).map((i: any) => ({
-        name: i.cardName || "Custom Slab",
-        amountInCents: Math.round((i.price || UNIT_PRICE) * 100),
+      items: (order.items || []).map((i: Record<string, unknown>) => ({
+        name: (i.cardName as string) || "Custom Slab",
+        amountInCents: Math.round(((i.price as number) || UNIT_PRICE) * 100),
         quantity: 1,
       })),
       shippingFee: typeof order.shippingFee === "number" ? order.shippingFee : shippingFee,
@@ -219,7 +250,7 @@ const handleStripePaymentSuccess = async (orderId: string, paymentIntentId?: str
       { path: "user", select: "name email phone username avatar" },
       { path: "items.slab" },
     ]);
-    const userObj = populatedOrder.user as any;
+    const userObj = populatedOrder.user as unknown as { email?: string; name?: string; phone?: string };
     if (userObj?.email) {
       try {
         await sendEmail({
@@ -254,7 +285,7 @@ const purchaseOrderLabel = async (orderId: string, customRateId?: string) => {
     throw new AppError(httpStatus.NOT_FOUND, "Slab order not found");
   }
 
-  const userObj = order.user as any;
+  const userObj = order.user as unknown as { email?: string; name?: string; phone?: string };
 
   // Sanitize address for Shippo API (USPS requires valid US ZIP and 2-letter state code)
   const isTestMode =
@@ -314,7 +345,7 @@ const purchaseOrderLabel = async (orderId: string, customRateId?: string) => {
     );
   }
 
-  let transaction: any;
+  let transaction: { transactionId: string; labelUrl: string; trackingNumber: string; trackingUrl: string; carrier: string };
   try {
     transaction = await ShippoService.purchaseLabel(rateIdToUse);
   } catch (err) {
@@ -455,7 +486,7 @@ const getOrderById = async (orderId: string) => {
 
 const updateOrderStatus = async (
   orderId: string,
-  payload: { orderStatus?: string; trackingNumber?: string; notes?: string },
+  payload: { orderStatus?: TSlabOrderStatus; trackingNumber?: string; notes?: string },
 ) => {
   const order = await SlabOrder.findById(orderId);
   if (!order) {
@@ -463,7 +494,7 @@ const updateOrderStatus = async (
   }
 
   if (payload.orderStatus) {
-    order.orderStatus = payload.orderStatus as any;
+    order.orderStatus = payload.orderStatus;
     order.status = payload.orderStatus;
   }
   if (payload.trackingNumber !== undefined) {

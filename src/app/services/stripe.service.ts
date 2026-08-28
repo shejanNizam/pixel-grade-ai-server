@@ -56,7 +56,7 @@ export const createSlabCheckoutSession = async ({
   customerEmail,
   metadata = {},
 }: {
-  items: Array<{ name: string; amountInCents: number; quantity: number }>;
+  items: { name: string; amountInCents: number; quantity: number }[];
   shippingFee: number;
   taxAmount: number;
   successUrl: string;

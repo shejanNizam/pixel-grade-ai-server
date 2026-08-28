@@ -27,6 +27,7 @@ describe("grading normalise", () => {
       { ...base, grade: 11, confidence: 150, scoreSurface: -3 },
       "pixelgrade-v2",
       {},
+      "pixelscope",
     );
 
     expect(result.grade).toBe(10);
@@ -34,7 +35,7 @@ describe("grading normalise", () => {
     expect(result.scoreSurface).toBe(0);
   });
 
-  it("caps confidence at 85 for standard phone photo uploads", () => {
+  it("caps confidence at 80 for standard phone photo uploads", () => {
     const result = normalise(
       { ...base, confidence: 95 },
       "pixelgrade-v2",
@@ -42,7 +43,7 @@ describe("grading normalise", () => {
       "standard",
     );
 
-    expect(result.confidence).toBe(85);
+    expect(result.confidence).toBe(80);
   });
 
   it("keeps well-formed defects", () => {

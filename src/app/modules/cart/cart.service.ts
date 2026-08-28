@@ -1,11 +1,22 @@
+import { Types } from "mongoose";
 import httpStatus from "http-status";
 import AppError from "../../errorHelpers/AppError";
 import { SlabLabel } from "../slab/slab.model";
 import { GradingReport } from "../grading/grading.model";
 import { Card } from "../card/card.model";
 import { Cart } from "./cart.model";
+import { ICartItem } from "./cart.interface";
 
 const UNIT_PRICE = 5.99;
+
+export interface IAddToCartPayload {
+  slabId?: string;
+  itemType?: string;
+  cardName?: string;
+  quantity?: number;
+  compositeUrl?: string;
+  price?: number;
+}
 
 const getCart = async (userId: string) => {
   let cart = await Cart.findOne({ user: userId });
@@ -27,21 +38,22 @@ const getCart = async (userId: string) => {
   return cart;
 };
 
-const addToCart = async (userId: string, payload: any) => {
+const addToCart = async (userId: string, payload: IAddToCartPayload | string) => {
   let cart = await Cart.findOne({ user: userId });
   if (!cart) {
     cart = await Cart.create({ user: userId, items: [] });
   }
 
-  const slabId = typeof payload === "string" ? payload : payload?.slabId;
-  const isHardware = payload?.itemType === "hardware" || payload?.cardName?.includes("PixelScope");
+  const payloadObj = typeof payload === "object" ? payload : undefined;
+  const slabId = typeof payload === "string" ? payload : payloadObj?.slabId;
+  const isHardware = payloadObj?.itemType === "hardware" || payloadObj?.cardName?.includes("PixelScope");
 
-  const reqQuantity = Math.max(1, Number(payload?.quantity) || 1);
+  const reqQuantity = Math.max(1, Number(payloadObj?.quantity) || 1);
 
-  if (isHardware || (!slabId && payload?.cardName)) {
-    const cardName = payload?.cardName || "PixelScope Digital Magnifier";
-    const compositeUrl = payload?.compositeUrl || "/assets/pixelscope/pixelscope_image_one.PNG";
-    const price = payload?.price || 69.99;
+  if (isHardware || (!slabId && payloadObj?.cardName)) {
+    const cardName = payloadObj?.cardName || "PixelScope Digital Magnifier";
+    const compositeUrl = payloadObj?.compositeUrl || "/assets/pixelscope/pixelscope_image_one.PNG";
+    const price = payloadObj?.price || 69.99;
 
     const existingIndex = cart.items.findIndex(
       (item) => item.cardName === cardName
@@ -60,7 +72,7 @@ const addToCart = async (userId: string, payload: any) => {
         price,
         quantity: reqQuantity,
         addedAt: new Date(),
-      } as any);
+      } as ICartItem);
     }
   } else if (slabId) {
     const slab = await SlabLabel.findById(slabId);
@@ -90,7 +102,7 @@ const addToCart = async (userId: string, payload: any) => {
       cart.items[existingIndex].gradeLabel = report.gradeLabel;
     } else {
       cart.items.push({
-        slab: slab._id as any,
+        slab: slab._id as Types.ObjectId,
         cardName,
         grade: report.grade,
         gradeLabel: report.gradeLabel,
@@ -113,7 +125,7 @@ const removeFromCart = async (userId: string, itemId: string) => {
     throw new AppError(httpStatus.NOT_FOUND, "Cart not found");
   }
 
-  cart.items = cart.items.filter((item) => (item as any)._id.toString() !== itemId);
+  cart.items = cart.items.filter((item) => (item as ICartItem & { _id: Types.ObjectId })._id.toString() !== itemId);
   await cart.save();
   return cart;
 };

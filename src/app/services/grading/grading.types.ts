@@ -333,7 +333,7 @@ than 0.5, and any severe defect caps it at 6 or below.
 STEP 9 — SET CONFIDENCE HONESTLY.
 Confidence reflects how much the IMAGES support a firm, conclusive condition judgement.
 - For PixelScope Macro Scans: High-magnification detail photos allow precise inspection. Confidence can score HIGH (90-100%) when card details are clearly visible.
-- For Standard Phone Uploads: The AI MUST differentiate and NEVER assume PixelScope was used. Camera lighting, glare, reflections, and non-flat angles reduce certainty. Standard phone photos MUST score confidence conservatively in the moderate/cautious range (60-85%) and must never exceed 85%.
+- For Standard Phone Uploads: The AI MUST differentiate and NEVER assume PixelScope was used. Camera lighting, glare, reflections, and non-flat angles reduce certainty. Standard phone photos MUST score confidence conservatively in the moderate/cautious range (60-80%) and must never exceed 80%.
 
 STEP 10 — EXPLAIN.
 reasoning must say why the overall grade landed where it did, naming the defects
@@ -350,7 +350,7 @@ fails; do not explain the inconsistency, correct it.
   - Any severe defect has capped the overall grade at 6 or below.
   - scoreCentering matches the measured ratios, not an impression.
   - For PixelScope macro scans: confidence is >= 90% when clear detail photos are inspectable.
-  - For standard phone uploads: confidence is <= 85% and reflects real-world image limitations (glare, angle, lighting).
+  - For standard phone uploads: confidence is <= 80% and reflects real-world image limitations (glare, angle, lighting).
 
 Report only what is visible. Never infer condition from the card's identity,
 rarity, or market value. Be internally consistent: the sub-scores, the defect
@@ -360,7 +360,7 @@ export const buildUserPrompt = (input: GradingInput): string => {
   const isPixelScope = input.source === "pixelscope";
   const noteOnImages = isPixelScope
     ? "Note on images: This upload is a PixelScope hardware macro inspection scan (full card overview + high-magnification macro detail photos). High confidence (90-100%) is appropriate when card details are clear."
-    : "Note on images: This upload is a STANDARD REGULAR PHONE PHOTO upload (NOT PixelScope). Do NOT assume PixelScope macro hardware was used. Regular phone photos carry limitations like glare, reflections, and lighting. Evaluate confidence conservatively (60-85% max) reflecting real-world photo uncertainty.";
+    : "Note on images: This upload is a STANDARD REGULAR PHONE PHOTO upload (NOT PixelScope). Do NOT assume PixelScope macro hardware was used. Regular phone photos carry limitations like glare, reflections, and lighting. Evaluate confidence conservatively (60-80% max) reflecting real-world photo uncertainty.";
 
   return [
     input.cardName ? `Card: ${input.cardName}` : null,
@@ -480,8 +480,9 @@ export const normalise = (
 
   const finalGradeLabel = getGradeLabel(finalGrade);
 
-  // Standard phone photo uploads are capped at 85% max confidence ceiling to reflect real-world photo limitations
-  const maxConfidence = source === "standard" ? 85 : 100;
+  // Standard phone-camera scans MUST be capped at 80% confidence per client safeguard requirement.
+  // Confidence above 80% is strictly reserved for scans where PixelScope was used.
+  const maxConfidence = source === "pixelscope" ? 100 : 80;
 
   return {
     grade: finalGrade,

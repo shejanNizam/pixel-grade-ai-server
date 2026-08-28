@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import express from "express";
+import mongoose from "mongoose";
+import { z } from "zod";
 import { configs } from "../config/index";
 import { deleteFromCloudinary } from "../config/cloudinary.config";
 import { logger } from "../utils/logger";
@@ -13,8 +14,14 @@ import { TErrorSources } from "../interfaces/error.types";
 
 const swallowError = (_err: unknown): void => undefined;
 
+export interface IGlobalError extends Error {
+  code?: number;
+  statusCode?: number;
+  errorSources?: TErrorSources[];
+}
+
 export const globalErrorHandler = async (
-  err: any,
+  err: IGlobalError,
   req: express.Request,
   res: express.Response,
   _next: express.NextFunction,
@@ -55,16 +62,16 @@ export const globalErrorHandler = async (
     statusCode = simplified.statusCode;
     message = simplified.message;
   } else if (err.name === "CastError") {
-    const simplified = handleCastError(err);
+    const simplified = handleCastError(err as unknown as mongoose.Error.CastError);
     statusCode = simplified.statusCode;
     message = simplified.message;
   } else if (err.name === "ZodError") {
-    const simplified = handlerZodError(err);
+    const simplified = handlerZodError(err as unknown as z.ZodError);
     statusCode = simplified.statusCode;
     message = simplified.message;
     errorSources = simplified.errorSources as TErrorSources[];
   } else if (err.name === "ValidationError") {
-    const simplified = handlerValidationError(err);
+    const simplified = handlerValidationError(err as unknown as mongoose.Error.ValidationError);
     statusCode = simplified.statusCode;
     message = simplified.message;
     errorSources = simplified.errorSources as TErrorSources[];

@@ -81,6 +81,9 @@ const createCheckoutSession = async (
     session = await getStripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: 30,
+      },
       customer_email: user.email,
       metadata: {
         userId: String(user._id),
@@ -89,14 +92,15 @@ const createCheckoutSession = async (
       },
       ...returnUrls(),
     });
-  } catch (stripeErr: any) {
+  } catch (stripeErr: unknown) {
     logger.error("Stripe checkout session creation failed:", stripeErr);
 
+    const stripeErrMsg = (stripeErr as Error)?.message || "";
     // Dev/Test fallback: if Stripe key is invalid or expired, simulate activation so UI testing is unblocked
     const isDevKeyError =
       process.env.NODE_ENV === "development" ||
-      stripeErr?.message?.includes("Invalid API Key") ||
-      stripeErr?.message?.includes("Expired API Key") ||
+      stripeErrMsg.includes("Invalid API Key") ||
+      stripeErrMsg.includes("Expired API Key") ||
       configs.STRIPE.secret_key?.startsWith("rk_");
 
     if (isDevKeyError) {

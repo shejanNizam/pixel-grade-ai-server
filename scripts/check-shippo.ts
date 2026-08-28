@@ -29,8 +29,9 @@ async function runCheck() {
         `Selected USPS Rate: ${result.selectedRate.serviceLevelName} - $${result.selectedRate.amount} USD (Rate ID: ${result.selectedRate.rateId})`,
       );
     }
-  } catch (err: any) {
-    console.error("❌ Shippo Check Failed:", err.message || err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("❌ Shippo Check Failed:", message);
     process.exit(1);
   }
 }

@@ -362,9 +362,12 @@ export const bandColumns = (labelX: number, labelWidth: number) => {
   // costs is the handle's cap: a long one now sets a step smaller, which is the
   // right trade in a column whose head is an image.
   const ownerX = labelX + padX;
-  const ownerW = Math.round(inner * 0.145);
+  const ownerW = Math.round(inner * 0.135);
 
-  const infoX = ownerX + ownerW + gap;
+  // Spacious equal padding before & after card info between vertical divider lines
+  const leftDividerX = ownerX + ownerW + Math.round(labelWidth * 0.012);
+  const infoPad = Math.round(labelWidth * 0.021);
+  const infoX = leftDividerX + infoPad;
 
   return {
     padX,
@@ -373,8 +376,10 @@ export const bandColumns = (labelX: number, labelWidth: number) => {
     ownerX,
     ownerW,
     ownerCentre: ownerX + ownerW / 2,
+    leftDividerX,
+    infoPad,
     infoX,
-    infoW: gradeLeft - gap - infoX,
+    infoW: gradeLeft - gap / 2 - infoPad - infoX,
     gradeLeft,
     gradeW,
     gradeCentre: gradeLeft + gradeW / 2,
@@ -398,6 +403,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     gap,
     ownerW,
     ownerCentre,
+    leftDividerX,
     infoX,
     infoW,
     gradeLeft,
@@ -754,7 +760,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
       rowLead * 0.4,
   );
   const dividerXs = [
-    infoX - gap / 2,
+    leftDividerX,
     gradeLeft - gap / 2,
     qrColLeft - gap / 2,
   ];

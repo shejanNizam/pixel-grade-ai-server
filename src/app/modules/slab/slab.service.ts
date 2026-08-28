@@ -93,6 +93,12 @@ const ASSET_FETCH_ATTEMPTS = 3;
  * whole slab.
  */
 const fetchBuffer = async (url: string, label = "asset"): Promise<Buffer> => {
+  if (url.startsWith("data:")) {
+    const parts = url.split(",");
+    const isBase64 = parts[0]?.includes("base64");
+    return Buffer.from(parts[1] || "", isBase64 ? "base64" : "utf-8");
+  }
+
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= ASSET_FETCH_ATTEMPTS; attempt += 1) {

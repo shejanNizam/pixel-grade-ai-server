@@ -4,7 +4,7 @@ import {
   SLAB_DEFAULTS,
   SLAB_STYLES,
 } from "../../constants";
-import { ISlabLabel, ISlabOrder, SlabOrderStatus } from "./slab.interface";
+import { ISlabLabel } from "./slab.interface";
 
 export const slabLabelSchema = new Schema<ISlabLabel>(
   {

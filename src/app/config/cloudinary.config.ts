@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
 import httpStatus from "http-status";
 import { configs } from "./index";
@@ -29,10 +28,10 @@ export const uploadBufferToCloudinary = async (
         )
         .end(buffer);
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     throw new AppError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      `Error uploading file: ${error.message}`,
+      `Error uploading file: ${(error as Error).message}`,
     );
   }
 };
@@ -53,7 +52,7 @@ export const deleteFromCloudinary = async (url?: string): Promise<void> => {
     const public_id = extractPublicId(url);
     if (!public_id) return;
     await cloudinary.uploader.destroy(public_id, { resource_type: "auto" });
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error(`Cloudinary deletion failed for ${url}:`, error);
   }
 };

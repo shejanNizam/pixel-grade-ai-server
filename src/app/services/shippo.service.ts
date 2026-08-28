@@ -112,8 +112,8 @@ const validateAddress = async (address: ShippoAddressInput) => {
     }
 
     return res;
-  } catch (err: any) {
-    logger.warn("Shippo address validation warning:", err.message);
+  } catch (err: unknown) {
+    logger.warn("Shippo address validation warning:", (err as Error).message);
     return { validation_results: { is_valid: true } };
   }
 };
@@ -121,7 +121,7 @@ const validateAddress = async (address: ShippoAddressInput) => {
 /** Create shipment and retrieve available USPS rates with fail-safe fallback */
 const getRatesForShipment = async (
   toAddress: ShippoAddressInput,
-  slabCount: number = 1,
+  slabCount = 1,
 ): Promise<{ shipmentId: string; rates: ShippoRate[]; selectedRate?: ShippoRate }> => {
   await validateAddress(toAddress);
 
@@ -160,7 +160,15 @@ const getRatesForShipment = async (
       body: JSON.stringify(shipmentPayload),
     });
 
-    const rawRates: any[] = shipment.rates || [];
+    interface IRawShippoRate {
+      object_id: string;
+      amount: string;
+      currency: string;
+      provider: string;
+      servicelevel?: { name?: string };
+      estimated_days?: number;
+    }
+    const rawRates: IRawShippoRate[] = shipment.rates || [];
     const rates: ShippoRate[] = rawRates.map((r) => ({
       rateId: r.object_id,
       amount: parseFloat(r.amount),
@@ -181,8 +189,8 @@ const getRatesForShipment = async (
       rates: rates.length > 0 ? rates : [fallbackRate],
       selectedRate: uspsGround || fallbackRate,
     };
-  } catch (err: any) {
-    logger.warn("Shippo API rate fetch warning (falling back to standard USPS Ground Advantage $5.95):", err.message);
+  } catch (err: unknown) {
+    logger.warn("Shippo API rate fetch warning (falling back to standard USPS Ground Advantage $5.95):", (err as Error).message);
     return {
       shipmentId: "estimated_shipment",
       rates: [fallbackRate],
@@ -206,7 +214,7 @@ const purchaseLabel = async (rateId: string) => {
   if (transaction.status !== "SUCCESS") {
     const errorMsg =
       transaction.messages?.[0]?.text ||
-      (Array.isArray(transaction.messages) ? transaction.messages.map((m: any) => m.text).join(", ") : "Failed to purchase shipping label via Shippo.");
+      (Array.isArray(transaction.messages) ? transaction.messages.map((m: { text?: string }) => m.text).join(", ") : "Failed to purchase shipping label via Shippo.");
     throw new AppError(httpStatus.BAD_GATEWAY, `Shippo Label Purchase Failed: ${errorMsg}`);
   }
 

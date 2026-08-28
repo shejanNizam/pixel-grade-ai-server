@@ -302,40 +302,17 @@ const generateBackground = async (
  * strand the user with nothing. Only an empty result is an error.
  */
 const generateExtArtSet = async (
-  cardContext?: CardArtContext,
+  _cardContext?: CardArtContext,
 ): Promise<string[]> => {
-  const direction = buildArtDirection(cardContext);
+  // Extended artwork generation is disabled per client instruction ("lets remove that feature for now").
+  // Return neutral dark slab background to avoid DALL-E API calls.
+  const DEFAULT_NEUTRAL_BG =
+    "data:image/svg+xml;base64," +
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1536"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#141416"/><stop offset="50%" stop-color="#0d0d0f"/><stop offset="100%" stop-color="#08080a"/></linearGradient></defs><rect width="1024" height="1536" fill="url(#g)"/></svg>`,
+    ).toString("base64");
 
-  const settled = await Promise.allSettled(
-    EXT_ART_TREATMENTS.map((treatment, index) =>
-      renderPrompt(
-        `${PROMPT_PREAMBLE}${treatment}${direction}${SEAM_DIRECTION}${COMPOSITION_DIRECTION}`,
-        `slab-extart-${index + 1}`,
-      ),
-    ),
-  );
-
-  const urls = settled.flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : [],
-  );
-
-  settled.forEach((result, index) => {
-    if (result.status === "rejected") {
-      logger.error("EXT. ART option failed to generate", {
-        option: index + 1,
-        error: result.reason,
-      });
-    }
-  });
-
-  if (urls.length === 0) {
-    throw new AppError(
-      httpStatus.BAD_GATEWAY,
-      "Could not generate any background artwork. Please try again.",
-    );
-  }
-
-  return urls;
+  return [DEFAULT_NEUTRAL_BG];
 };
 
 /** What the card generator knows about the card it is asked to draw. */
