@@ -369,8 +369,8 @@ const purchaseOrderLabel = async (orderId: string, customRateId?: string) => {
     carrier: transaction.carrier,
   };
   order.trackingNumber = transaction.trackingNumber;
-  order.orderStatus = "shipped";
-  order.status = "shipped";
+  order.orderStatus = "ready_to_ship";
+  order.status = "ready_to_ship";
 
   await order.save();
 
@@ -380,7 +380,7 @@ const purchaseOrderLabel = async (orderId: string, customRateId?: string) => {
     try {
       await sendEmail({
         to: recipientEmail,
-        subject: `Your PixelGrade Order ${order.orderNumber} Has Shipped!`,
+        subject: `Your PixelGrade Order ${order.orderNumber} Is Ready To Ship!`,
         templateName: "orderConfirmation", // reusing or sending shipping email template
         templateData: {
           name: order.shippingAddress?.fullName || userObj?.name || "Collector",
@@ -414,7 +414,7 @@ const getMyOrders = async (
   const skip = (page - 1) * limit;
 
   const [data, total] = await Promise.all([
-    SlabOrder.find({ user: userId })
+    SlabOrder.find({ user: userId, paymentStatus: "paid" })
       .sort("-createdAt")
       .skip(skip)
       .limit(limit)
@@ -422,7 +422,7 @@ const getMyOrders = async (
         { path: "user", select: "name email phone username avatar" },
         { path: "items.slab" },
       ]),
-    SlabOrder.countDocuments({ user: userId }),
+    SlabOrder.countDocuments({ user: userId, paymentStatus: "paid" }),
   ]);
 
   return {
@@ -445,7 +445,7 @@ const getAllOrders = async (query: {
   const limit = Math.max(1, Number(query.limit ?? 20));
   const skip = (page - 1) * limit;
 
-  const filter: Record<string, unknown> = {};
+  const filter: Record<string, unknown> = { paymentStatus: "paid" };
   if (query.status) {
     filter.orderStatus = query.status;
   }

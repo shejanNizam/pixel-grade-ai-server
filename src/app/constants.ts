@@ -20,13 +20,9 @@ export const CREDITS_PER_SCAN = 5;
 
 /**
  * Daily allowance for Free, re-granted by cron rather than accrued. No rollover.
- *
- * The client states Free in *scans* (5 per day, 2026-08-10), so this is
- * 5 × CREDITS_PER_SCAN. Quote plan sizes in scans and store them in credits —
- * writing the scan count straight into this field silently cuts the allowance
- * by a factor of CREDITS_PER_SCAN.
+ * Updated to 20 credits/day per final client specification.
  */
-export const FREE_DAILY_CREDITS = 25;
+export const FREE_DAILY_CREDITS = 20;
 
 /**
  * How long a scan may sit unconfirmed before the sweeper refunds it.

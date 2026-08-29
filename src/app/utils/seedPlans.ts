@@ -45,8 +45,7 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For active collectors",
     priceMonthly: 10,
     priceYearly: 8,
-    // 600 scans/month = 3,000 credits
-    creditAmount: 600 * CREDITS_PER_SCAN,
+    creditAmount: 1500,
     creditInterval: CreditInterval.monthly,
     pixelscope: true,
     priceTracking: true,
@@ -67,8 +66,7 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For power users",
     priceMonthly: 25,
     priceYearly: 20,
-    // 1,500 scans/month = 7,500 credits
-    creditAmount: 1500 * CREDITS_PER_SCAN,
+    creditAmount: 4000,
     creditInterval: CreditInterval.monthly,
     pixelscope: true,
     priceTracking: true,
@@ -89,8 +87,7 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For businesses & card shops",
     priceMonthly: 119,
     priceYearly: 99,
-    // null = unlimited
-    creditAmount: null,
+    creditAmount: 25000,
     creditInterval: CreditInterval.monthly,
     pixelscope: true,
     priceTracking: true,

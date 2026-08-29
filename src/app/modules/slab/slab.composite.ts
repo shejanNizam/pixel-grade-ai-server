@@ -60,8 +60,8 @@ export interface LabelText {
  * The generic still earns its place at the end: it is the difference between a
  * substituted face and no text at all.
  */
-const SANS = `'DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif`;
-const SERIF = `'DejaVu Serif', 'Liberation Serif', 'Noto Serif', Georgia, 'Times New Roman', serif`;
+const SANS = `'DejaVu Sans', 'Liberation Sans', 'Noto Sans JP', 'Noto Sans CJK JP', 'IPAexGothic', 'Meiryo', 'Yu Gothic', 'Noto Sans', 'Segoe UI', Helvetica, Arial, sans-serif`;
+const SERIF = `'DejaVu Serif', 'Liberation Serif', 'Noto Serif JP', 'Noto Serif CJK JP', 'IPAexMincho', 'Noto Serif', Georgia, 'Times New Roman', serif`;
 
 /** XML-escape — card names legitimately contain `&` (e.g. "Bill & Co"), which
  *  would otherwise produce malformed SVG and a blank text layer. */
@@ -79,9 +79,12 @@ const esc = (value: string): string =>
   );
 
 /** Very long card names would overflow the safe area; truncate rather than
- *  letting the text run under the trim line where it may be cut off. */
-const fit = (value: string, max: number): string =>
-  value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+ *  letting the text run under the trim line where it may be cut off. Uses Array.from
+ *  to preserve multi-byte UTF-8 Japanese characters. */
+const fit = (value: string, max: number): string => {
+  const chars = Array.from(value);
+  return chars.length <= max ? value : `${chars.slice(0, max - 1).join("")}…`;
+};
 
 /**
  * Grades print the way graders write them: "10", not "10.0"; "8.5" keeps its
