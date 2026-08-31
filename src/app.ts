@@ -34,7 +34,22 @@ app.use(
     stream: { write: (msg) => logger.http(msg.trim()) },
   }),
 );
-app.set("trust proxy", 1);
+// Two proxies sit in front of this process on Elastic Beanstalk: the load
+// balancer, then the instance's own nginx. The ALB appends the caller to
+// X-Forwarded-For and nginx appends the ALB, so the chain arrives as
+// `<client>, <alb>` and only a hop count of 2 resolves req.ip to the client.
+//
+// At 1, Express stopped one hop short and read the ALB's address as the
+// client, which put every visitor on the planet into a single rate-limit
+// bucket — 200 requests per 15 minutes for the whole site, after which
+// everyone including the load balancer's own health check gets a 429. That is
+// the "100.0% of the requests are erroring with HTTP 4xx" the environment
+// reported on 2026-08-31.
+//
+// 2 is not more permissive than 1: a spoofed X-Forwarded-For entry sent by a
+// client lands to the LEFT of the ALB's own append, so it is never one of the
+// two trusted hops and can only displace itself.
+app.set("trust proxy", 2);
 
 // Stripe webhook — mounted BEFORE the rate limiter and the JSON parser.
 //   • Before globalLimiter: a burst of legitimate Stripe events must never be
@@ -48,6 +63,14 @@ app.use(
   express.raw({ type: "application/json" }),
   StripeWebhookRoutes,
 );
+
+// Health checks — mounted BEFORE globalLimiter, and outside /api/v1 so infra
+// probes need no auth headers. The load balancer polls this from every AZ for
+// the life of the environment; behind the limiter those probes both consume
+// the budget and eventually get 429'd by it, which reads to EB as the instance
+// being down and fails the deployment that was otherwise fine. A health check
+// that can be rate-limited is not a health check.
+app.use("/health", HealthRoutes);
 
 app.use(globalLimiter);
 
@@ -88,9 +111,6 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
-
-// Health checks — outside /api/v1 so infra probes don't need auth headers
-app.use("/health", HealthRoutes);
 
 // API docs — only expose in non-production environments
 if (configs.node_env !== "production") {

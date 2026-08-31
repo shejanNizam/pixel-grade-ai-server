@@ -170,8 +170,8 @@ export const configs = {
   },
 
   STRIPE: {
-    secret_key: env.STRIPE_SECRET_KEY,
-    webhook_secret: env.STRIPE_WEBHOOK_SECRET,
+    secret_key: env.STRIPE_SECRET_KEY?.trim().replace(/^["']|["']$/g, ""),
+    webhook_secret: env.STRIPE_WEBHOOK_SECRET?.trim().replace(/^["']|["']$/g, ""),
   },
 
   CAPTCHA: {

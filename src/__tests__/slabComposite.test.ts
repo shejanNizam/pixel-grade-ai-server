@@ -16,6 +16,7 @@ import {
   CAP_RATIO,
   compositePng,
   formatGrade,
+  FULLWIDTH,
   LabelText,
 } from "../app/modules/slab/slab.composite";
 import { computeLayout } from "../app/modules/slab/slab.geometry";
@@ -92,6 +93,27 @@ const ADVANCE: Record<string, number> = {
   idvalue: 0.62,
 };
 
+/**
+ * Rendered width of a run, in pixels.
+ *
+ * The per-class `ADVANCE` figures above all describe PROPORTIONAL Latin faces.
+ * A CJK glyph is a full em in every one of them, so modelling a Japanese card
+ * name at 0.6em reports an overflowing column as comfortable — the same class
+ * of error as the handle and the badge above, and the reason the Japanese band
+ * shipped broken on 2026-08-31 with every existing test green.
+ *
+ * `FULLWIDTH` is IMPORTED rather than re-declared here. Which characters are
+ * full width is a Unicode fact shared with the renderer, unlike the advance
+ * figures, which are measured against rasterised output and deliberately
+ * independent. A hand-copied range table is exactly the drift that let the old
+ * column fractions measure a band nobody was drawing.
+ */
+const runWidth = (value: string, size: number, advance: number): number =>
+  [...value].reduce(
+    (w, ch) => w + size * (FULLWIDTH.test(ch) ? 1 : advance),
+    0,
+  );
+
 /** Reads `letter-spacing: Npx` for a class out of the SVG's <style> block. */
 const trackingOf = (svg: string, cls: string): number => {
   const rule = new RegExp(`\\.${cls}\\s+\\{[^}]*\\}`).exec(svg)?.[0] ?? "";
@@ -110,8 +132,8 @@ const boxesOf = (svg: string) => {
     // The rendered extent: glyph advances plus the gap letter-spacing inserts
     // between them. Leaving tracking out is what let the mutation slip past.
     const width =
-      value.length * fontSize * (ADVANCE[cls] ?? 0.6) +
-      Math.max(0, value.length - 1) * trackingOf(svg, cls);
+      runWidth(value, fontSize, ADVANCE[cls] ?? 0.6) +
+      Math.max(0, [...value].length - 1) * trackingOf(svg, cls);
 
     return {
       x: Number(x),
@@ -984,6 +1006,123 @@ describe("slab case", () => {
     );
 
     expect(notches.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("Japanese card information", () => {
+  /**
+   * Japanese cards are a first-class case — `language: "Japanese"` prints on
+   * the band and Scrydex returns Japanese printings — and every width estimate
+   * in this column was written against a proportional Latin face. A CJK glyph
+   * is a full em, so the column's own budget under-counted a Japanese name by
+   * ~58%: it was sized too large to fit, its truncation budget never fired,
+   * and the set line never found a wrap point. Reported from production
+   * 2026-08-31; the band drew the name straight through its neighbours.
+   */
+  const jp: LabelText = {
+    ...fullText,
+    cardName: "リザードンex",
+    setExpansion: "黒炎の支配者",
+    language: "Japanese",
+    cardNumber: "089/071",
+    year: "2023",
+    grade: 8,
+    gradeLabel: "NM-MT",
+  };
+
+  it("keeps a Japanese card name inside the card-information column", () => {
+    const svg = buildTextLayer(layout, jp).toString();
+    const { texts } = boxesOf(svg);
+
+    const name = requireText(texts, (t) => t.cls === "name", "the card name");
+    const { left, right } = extentOf(name);
+
+    expect(left).toBeGreaterThanOrEqual(cols.infoX);
+    expect(right).toBeLessThanOrEqual(cols.gradeLeft);
+  });
+
+  it("wraps a Japanese set name, which carries no spaces to wrap on", () => {
+    // Long enough that it MUST wrap, and — like every real Japanese set name
+    // — carrying no space to wrap at. The old rule split only on spaces, so
+    // the year supplied the one break available and the set name itself then
+    // ran the width of the band. Japanese breaks between any two characters,
+    // so a character break is correct here, not a compromise.
+    const svg = buildTextLayer(layout, {
+      ...jp,
+      // 13 glyphs: FEWER characters than the column's budget, but nearly
+      // twice its width. A count-based test for "does this need wrapping"
+      // says no and prints it straight through the grade column.
+      setExpansion: "スカーレットとバイオレット",
+    }).toString();
+    const { texts } = boxesOf(svg);
+
+    // Left-anchored at the column's own x. `meta` and `micro` are shared with
+    // the QR column, so an inequality here would sweep in the Pixel ID.
+    const metaRows = texts.filter(
+      (t) => t.cls === "meta" && t.x === cols.infoX,
+    );
+    expect(metaRows).toHaveLength(2);
+
+    for (const row of metaRows) {
+      const { left, right } = extentOf(row);
+      expect(left).toBeGreaterThanOrEqual(cols.infoX);
+      expect(right).toBeLessThanOrEqual(cols.gradeLeft);
+    }
+  });
+
+  it("keeps every card-information row clear of the grade column", () => {
+    const svg = buildTextLayer(layout, jp).toString();
+    const { texts } = boxesOf(svg);
+
+    const infoRows = texts.filter(
+      (t) => ["name", "meta", "micro"].includes(t.cls) && t.x === cols.infoX,
+    );
+    expect(infoRows.length).toBeGreaterThanOrEqual(3);
+
+    const grade = requireText(texts, (t) => t.cls === "grade", "the grade");
+    const gradeLeft = extentOf(grade).left;
+
+    for (const row of infoRows) {
+      expect(extentOf(row).right).toBeLessThanOrEqual(gradeLeft);
+    }
+  });
+
+  it("charges a full-width glyph its true width, not a Latin character's", () => {
+    // The bug in one assertion: a name of N Japanese glyphs must be sized as
+    // though it were the ~1.8N Latin characters it occupies, so it cannot come
+    // out the same size as an N-character Latin name in the same column.
+    const jpName = buildTextLayer(layout, { ...jp, cardName: "リザードンex" });
+    const latin = buildTextLayer(layout, { ...jp, cardName: "Charizard" });
+
+    const jpSize = requireText(
+      boxesOf(jpName.toString()).texts,
+      (t) => t.cls === "name",
+      "the Japanese card name",
+    ).size;
+    const latinSize = requireText(
+      boxesOf(latin.toString()).texts,
+      (t) => t.cls === "name",
+      "the Latin card name",
+    ).size;
+
+    expect(jpSize).toBeLessThan(latinSize);
+  });
+
+  it("still sets a Latin name at its full size — the fix is not a global shrink", () => {
+    // Guard on the other direction: over-charging Latin text would quietly
+    // shrink every existing slab. The long-name floor above is 32; this pins
+    // that the CJK weighting leaves ASCII untouched.
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      cardName: "Iono's Bellibolt ex",
+    }).toString();
+    const name = requireText(
+      boxesOf(svg).texts,
+      (t) => t.cls === "name",
+      "the card name",
+    );
+
+    expect(name.size).toBeGreaterThanOrEqual(32);
   });
 });
 

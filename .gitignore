@@ -14,3 +14,9 @@ branch_structure.json
 temp_auto_push.bat
 temp_interactive_push.bat
 *.zip
+
+# EB packaging staging dir (scripts/make-server-zip.mjs)
+.ebstage/
+
+# EB log dumps (scripts/eb-logs.mjs)
+eb-logs/

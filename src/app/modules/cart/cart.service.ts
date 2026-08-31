@@ -7,7 +7,7 @@ import { Card } from "../card/card.model";
 import { Cart } from "./cart.model";
 import { ICartItem } from "./cart.interface";
 
-const UNIT_PRICE = 5.99;
+const UNIT_PRICE = 0.99;
 
 export interface IAddToCartPayload {
   slabId?: string;

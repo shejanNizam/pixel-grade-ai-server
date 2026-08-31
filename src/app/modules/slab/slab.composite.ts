@@ -78,12 +78,29 @@ const esc = (value: string): string =>
       })[c] ?? c,
   );
 
-/** Very long card names would overflow the safe area; truncate rather than
- *  letting the text run under the trim line where it may be cut off. Uses Array.from
- *  to preserve multi-byte UTF-8 Japanese characters. */
-const fit = (value: string, max: number): string => {
-  const chars = Array.from(value);
-  return chars.length <= max ? value : `${chars.slice(0, max - 1).join("")}…`;
+/**
+ * Very long card names would overflow the safe area; truncate rather than
+ * letting the text run under the trim line where it may be cut off.
+ *
+ * The budget is in LATIN-EQUIVALENT characters, not characters, because the
+ * column's budget was derived from a Latin advance. Counting raw characters
+ * treats a full-width Japanese glyph as the same width as an "i", which is how
+ * a Japanese card name came to be truncated at nearly twice its column's width
+ * (production, 2026-08-31). `Array.from` keeps surrogate pairs intact.
+ */
+const fit = (value: string, max: number, advance = 0.58): string => {
+  if (weightedChars(value, advance) <= max) return value;
+
+  const budget = max - 1; // the ellipsis costs about one Latin character
+  const kept: string[] = [];
+  let used = 0;
+  for (const ch of Array.from(value)) {
+    const w = charWidth(ch, advance);
+    if (used + w > budget) break;
+    used += w;
+    kept.push(ch);
+  }
+  return `${kept.join("")}…`;
 };
 
 /**
@@ -272,8 +289,51 @@ const qrPlateMargin = (labelHeight: number): number =>
  * narrow in every face the band can resolve to, and never widens an estimate.
  */
 const NARROW = /[.,:;'!|Il1 ]/;
-const weightedChars = (value: string): number =>
-  [...value].reduce((sum, ch) => sum + (NARROW.test(ch) ? 0.45 : 1), 0);
+
+/**
+ * Characters drawn at a full em regardless of the face — CJK ideographs, kana,
+ * Hangul, and the full-width Latin and punctuation forms.
+ *
+ * These are the other half of the "measured in both directions" rule, and the
+ * half that was missing. Every advance in this band (0.55 body, 0.62 bold,
+ * 0.78 caps) describes a PROPORTIONAL Latin face. A Japanese glyph is 1.0em in
+ * every one of them, so a Japanese card name measured at 0.55 comes out ~82%
+ * narrower than it draws: the name was sized too large for its column, its
+ * truncation budget never fired, and the set line never found a wrap point.
+ * That is the overlapping band reported from production on 2026-08-31.
+ */
+export const FULLWIDTH =
+  /[ᄀ-ᅟ⺀-鿿ꀀ-꓏가-힣豈-﫿︐-﹯＀-｠￠-￦]/;
+
+/**
+ * One character's width in LATIN-EQUIVALENT characters for the given advance.
+ *
+ * A full-width glyph is 1.0em, so against an advance of 0.55 it costs 1/0.55 =
+ * 1.82 of the column's budget. Expressing it this way is what lets the existing
+ * `fitToColumn` arithmetic stay unchanged: multiply the returned count by the
+ * run's advance and the product is the true width in ems.
+ */
+const charWidth = (ch: string, advance: number): number => {
+  if (FULLWIDTH.test(ch)) return 1 / advance;
+  return NARROW.test(ch) ? 0.45 : 1;
+};
+
+const weightedChars = (value: string, advance = 0.58): number =>
+  [...value].reduce((sum, ch) => sum + charWidth(ch, advance), 0);
+
+/**
+ * Index at which `value` first exceeds `budget` Latin-equivalent characters.
+ * Used to find a wrap point by width rather than by character count.
+ */
+const breakAt = (value: string, budget: number, advance: number): number => {
+  const chars = Array.from(value);
+  let used = 0;
+  for (let i = 0; i < chars.length; i++) {
+    used += charWidth(chars[i], advance);
+    if (used > budget) return i;
+  }
+  return chars.length;
+};
 
 /**
  * Label text as an SVG overlay sized to the full canvas, so it can be
@@ -479,11 +539,14 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // collector actually reads. Past MAX_NAME_CHARS it stops shrinking and
   // truncates instead, so a pathological name cannot reduce the band to
   // unreadable type.
+  // The cap is in Latin-equivalent characters, so a Japanese name reaches it
+  // at ~9 full-width glyphs rather than 16 — which is the same printed width,
+  // and the same floor on the type size.
   const MAX_NAME_CHARS = 16;
   const nameSize = fitToColumn(
     Math.round(labelHeight * 0.2),
     infoW,
-    Math.min(text.cardName.length, MAX_NAME_CHARS),
+    Math.min(weightedChars(text.cardName, 0.55), MAX_NAME_CHARS),
     { advance: 0.55 },
   );
   const metaSize = Math.round(labelHeight * 0.115);
@@ -617,21 +680,37 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   const radius = bandRadius(labelHeight);
 
   // Character budget for the free-text column, from its pixel width.
+  //
+  // Fractional on purpose. `fit` compares a WIDTH now, not a character count,
+  // so flooring the budget to a whole character throws away up to one
+  // character's worth of real column for no reason — and it lands hardest on
+  // full-width text, where one character is nearly two units of budget. It
+  // truncated "リザードンex" to "リザードン…" against a budget of 11 when the
+  // name measured 11.09 and the column held 11.22, losing the "ex" that
+  // distinguishes the card.
   const nameChars = Math.min(
     MAX_NAME_CHARS,
-    Math.max(6, Math.floor(infoW / (nameSize * 0.55))),
+    Math.max(6, infoW / (nameSize * 0.55)),
   );
-  const metaChars = Math.max(6, Math.floor(infoW / (metaSize * 0.55)));
+  const metaChars = Math.max(6, infoW / (metaSize * 0.55));
 
   const rawSetLine = [text.year, text.setExpansion].filter(Boolean).join(" ");
   let setLine1 = rawSetLine;
   let setLine2 = "";
-  if (rawSetLine.length > metaChars && rawSetLine.includes(" ")) {
-    const splitIdx = rawSetLine.lastIndexOf(" ", metaChars);
-    const safeSplit = splitIdx > 0 ? splitIdx : rawSetLine.indexOf(" ");
-    if (safeSplit > 0) {
-      setLine1 = rawSetLine.slice(0, safeSplit);
-      setLine2 = rawSetLine.slice(safeSplit + 1);
+  // Wrapped on WIDTH, and at a character boundary when there is no word one.
+  // A Japanese set name carries no spaces at all, so the old space-only rule
+  // never fired and the line ran straight out of the column and under the
+  // grade. Japanese breaks between any two characters by convention, so a hard
+  // break is the correct fallback rather than a compromise.
+  if (weightedChars(rawSetLine, 0.55) > metaChars) {
+    const chars = Array.from(rawSetLine);
+    const cut = breakAt(rawSetLine, metaChars, 0.55);
+    const spaceIdx = chars.lastIndexOf(" ", cut - 1);
+    const split = spaceIdx > 0 ? spaceIdx : cut;
+    if (split > 0 && split < chars.length) {
+      setLine1 = chars.slice(0, split).join("");
+      // A word break consumes its space; a character break keeps the glyph.
+      setLine2 = chars.slice(spaceIdx > 0 ? split + 1 : split).join("");
     }
   }
 
@@ -642,7 +721,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // Set one step down from the set lines and given its own budget: it is
   // reference data, not a name, and it is the longest line in the column.
   const numberSize = Math.round(metaSize * 0.92);
-  const numberChars = Math.max(6, Math.floor(infoW / (numberSize * 0.55)));
+  const numberChars = Math.max(6, infoW / (numberSize * 0.55));
 
   // ---- Vertical placement ----
   //
@@ -681,15 +760,23 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   // everything after it is a caption block at `capLead`. That is what makes a
   // wrapped set name read as one name.
   const infoLines = [
-    { cls: "name", size: nameSize, value: fit(text.cardName, nameChars) },
+    // 0.55 is the advance every budget in this column was derived from; `fit`
+    // needs it to charge a full-width glyph its true share of that budget.
+    { cls: "name", size: nameSize, value: fit(text.cardName, nameChars, 0.55) },
     ...(setLine1
-      ? [{ cls: "meta", size: metaSize, value: fit(setLine1, metaChars) }]
+      ? [{ cls: "meta", size: metaSize, value: fit(setLine1, metaChars, 0.55) }]
       : []),
     ...(setLine2
-      ? [{ cls: "meta", size: metaSize, value: fit(setLine2, metaChars) }]
+      ? [{ cls: "meta", size: metaSize, value: fit(setLine2, metaChars, 0.55) }]
       : []),
     ...(numberLine
-      ? [{ cls: "micro", size: numberSize, value: fit(numberLine, numberChars) }]
+      ? [
+          {
+            cls: "micro",
+            size: numberSize,
+            value: fit(numberLine, numberChars, 0.55),
+          },
+        ]
       : []),
   ];
   const infoBaselines = tightRows(
@@ -828,7 +915,7 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
           fill="none" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="2" />
   ${
     handleText
-      ? `<text x="${ownerCentre}" y="${baselineAt(handleTop, handleSize)}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars))}</text>`
+      ? `<text x="${ownerCentre}" y="${baselineAt(handleTop, handleSize)}" class="handle" font-size="${handleSize}" text-anchor="middle">${esc(fit(handleText, handleChars, BOLD_ADVANCE))}</text>`
       : ""
   }
 

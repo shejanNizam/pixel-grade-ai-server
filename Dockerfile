@@ -11,8 +11,8 @@ FROM node:22-alpine AS production
 WORKDIR /app
 
 # Run as non-root user
-# Install system fonts for sharp/librsvg SVG text rendering on Linux
-RUN apk add --no-cache fontconfig font-dejavu ttf-freefont
+# Install system fonts for sharp/librsvg SVG text rendering on Linux (including CJK for Japanese)
+RUN apk add --no-cache fontconfig font-dejavu ttf-freefont font-noto-cjk
 
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force

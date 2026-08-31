@@ -82,6 +82,17 @@ export const globalErrorHandler = async (
     message = err.message;
   }
 
+  // Prevent security leaks of secret API keys (e.g. Stripe sk_live_/sk_test_) in public API responses
+  if (
+    message.includes("sk_live_") ||
+    message.includes("sk_test_") ||
+    err.name === "StripeAuthenticationError" ||
+    err.name === "StripeAPIError"
+  ) {
+    logger.error("Stripe Payment Gateway Error:", err);
+    message = "Payment gateway is currently misconfigured. Please contact support.";
+  }
+
   const response: Record<string, unknown> = { success: false, message, errorSources };
   if (configs.node_env === "development") {
     response.err = err;
@@ -89,3 +100,4 @@ export const globalErrorHandler = async (
   }
   res.status(statusCode).json(response);
 };
+

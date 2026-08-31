@@ -5,6 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc && node scripts/copy-email-templates.mjs",
+    "zip": "node scripts/make-server-zip.mjs",
     "lint": "npx eslint ./src",
     "dev": "tsx watch src/server.ts",
     "dev:local": "tsx watch --env-file=.env src/server.ts",
@@ -12,7 +13,9 @@
     "test": "jest",
     "test:watch": "jest --watchAll",
     "test:coverage": "jest --coverage",
-    "start:local": "node --env-file-if-exists=.env dist/server.js"
+    "start:local": "node --env-file-if-exists=.env dist/server.js",
+    "deploy": "node scripts/deploy-eb.mjs",
+    "logs": "node scripts/eb-logs.mjs"
   },
   "keywords": [
     "backend",

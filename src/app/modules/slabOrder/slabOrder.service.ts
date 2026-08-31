@@ -17,7 +17,7 @@ import {
   TSlabOrderStatus,
 } from "./slabOrder.interface";
 
-const UNIT_PRICE = 5.99;
+const UNIT_PRICE = 0.99;
 const TAX_RATE = 0.0825; // 8.25% tax
 
 export interface ICreateOrderPayload {
