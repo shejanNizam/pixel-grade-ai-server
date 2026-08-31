@@ -255,6 +255,7 @@ const buildLabelText = (
   ownerAvatarDataUri?: string,
 ): LabelText => ({
   cardName: card.name,
+  japaneseName: card.japaneseName,
   setExpansion: card.setExpansion,
   cardNumber: card.cardNumber,
   language: card.language,

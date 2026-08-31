@@ -38,6 +38,8 @@ export interface ICardInitial {
   scrydexCardId: string;
   game: CardGame;
   name: string;
+  /** Optional original Japanese name for Japanese printings (e.g. "ウデッポウ") */
+  japaneseName?: string;
   language?: string;
   releaseYear?: number;
   /** The dashboard's "collection by set" grouping reads this. */

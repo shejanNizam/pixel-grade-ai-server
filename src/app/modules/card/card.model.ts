@@ -10,6 +10,7 @@ export const cardSchema = new Schema<ICard>(
       default: CardGame.pokemon,
     },
     name: { type: String, required: true },
+    japaneseName: { type: String },
     language: { type: String },
     releaseYear: { type: Number },
     setExpansion: { type: String },

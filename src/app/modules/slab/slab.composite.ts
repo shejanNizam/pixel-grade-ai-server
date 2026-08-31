@@ -19,6 +19,8 @@ import { SlabLayout } from "./slab.geometry";
 
 export interface LabelText {
   cardName: string;
+  /** Optional original Japanese name (e.g. "ウデッポウ") printed as a secondary line when cardName is in English */
+  japaneseName?: string;
   setExpansion?: string;
   cardNumber?: string;
   language?: string;
@@ -763,6 +765,9 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     // 0.55 is the advance every budget in this column was derived from; `fit`
     // needs it to charge a full-width glyph its true share of that budget.
     { cls: "name", size: nameSize, value: fit(text.cardName, nameChars, 0.55) },
+    ...(text.japaneseName
+      ? [{ cls: "meta", size: metaSize, value: fit(text.japaneseName, metaChars, 0.55) }]
+      : []),
     ...(setLine1
       ? [{ cls: "meta", size: metaSize, value: fit(setLine1, metaChars, 0.55) }]
       : []),

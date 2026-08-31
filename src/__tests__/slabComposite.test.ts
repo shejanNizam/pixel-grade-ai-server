@@ -583,6 +583,20 @@ describe("slab label band", () => {
     expect(svg).toContain("&amp;");
     expect(svg).not.toContain("<x>");
   });
+
+  it("renders English card name as primary title and Japanese name as an additional line", () => {
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      cardName: "Clauncher",
+      japaneseName: "ウデッポウ",
+      setExpansion: "Violet ex",
+      cardNumber: "083/078",
+      language: "Japanese",
+    }).toString();
+
+    expect(svg).toContain("Clauncher");
+    expect(svg).toContain("ウデッポウ");
+  });
 });
 
 /**
