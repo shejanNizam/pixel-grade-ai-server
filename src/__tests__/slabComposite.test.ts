@@ -584,7 +584,7 @@ describe("slab label band", () => {
     expect(svg).not.toContain("<x>");
   });
 
-  it("renders English card name as primary title and Japanese name as an additional line", () => {
+  it("renders English card name and appends 'Japanese' tag to set/year line without rendering Japanese script", () => {
     const svg = buildTextLayer(layout, {
       ...baseText,
       cardName: "Clauncher",
@@ -595,7 +595,26 @@ describe("slab label band", () => {
     }).toString();
 
     expect(svg).toContain("Clauncher");
-    expect(svg).toContain("ウデッポウ");
+    expect(svg).toContain("Japanese");
+    expect(svg).not.toContain("ウデッポウ");
+  });
+
+  it("converts Japanese Katakana card and set names to English on the slab label", () => {
+    const svg = buildTextLayer(layout, {
+      ...baseText,
+      cardName: "リザードン",
+      setExpansion: "プラズマゲイル",
+      cardNumber: "077/070",
+      year: "2012",
+      language: "Japanese",
+    }).toString();
+
+    expect(svg).toContain("Charizard");
+    expect(svg).toContain("2012 Japanese");
+    expect(svg).toContain("Plasma");
+    expect(svg).toContain("Gale");
+    expect(svg).not.toContain("リザードン");
+    expect(svg).not.toContain("プラズマゲイル");
   });
 });
 

@@ -307,6 +307,86 @@ const NARROW = /[.,:;'!|Il1 ]/;
 export const FULLWIDTH =
   /[ᄀ-ᅟ⺀-鿿ꀀ-꓏가-힣豈-﫿︐-﹯＀-｠￠-￦]/;
 
+const JAPANESE_TEXT_MAP: Record<string, string> = {
+  // Pokemon Names
+  "リザードン": "Charizard",
+  "ピカチュウ": "Pikachu",
+  "ウデッポウ": "Clauncher",
+  "ミュウツー": "Mewtwo",
+  "ミュウ": "Mew",
+  "ルギア": "Lugia",
+  "レックウザ": "Rayquaza",
+  "ゲンガー": "Gengar",
+  "イーブイ": "Eevee",
+  "ブラッキー": "Umbreon",
+  "エーフィ": "Espeon",
+  "ニンフィア": "Sylveon",
+  "フシギダネ": "Bulbasaur",
+  "ヒトカゲ": "Charmander",
+  "ゼニガメ": "Squirtle",
+  "フシギバナ": "Venusaur",
+  "カメックス": "Blastoise",
+  "ギャラドス": "Gyarados",
+  "カイリュー": "Dragonite",
+  "サーナイト": "Gardevoir",
+  "ルカリオ": "Lucario",
+  "ゲッコウガ": "Greninja",
+  "ミミッキュ": "Mimikyu",
+  "コライドン": "Koraidon",
+  "ミライドン": "Miraidon",
+
+  // Set Names
+  "プラズマゲイル": "Plasma Gale",
+  "バイオレットex": "Violet ex",
+  "スカーレットex": "Scarlet ex",
+  "クレイバースト": "Clay Burst",
+  "スノーハザード": "Snow Hazard",
+  "トリプレットビート": "Triplet Beat",
+  "パラダイムトリガー": "Paradigm Trigger",
+  "ロストアビス": "Lost Abyss",
+  "ダークファンタズマ": "Dark Phantasma",
+  "スペースジャグラー": "Space Juggler",
+  "タイムゲイザー": "Time Gazer",
+  "スターバース": "Star Birth",
+  "VMAXクライマックス": "VMAX Climax",
+  "フュージョンアーツ": "Fusion Arts",
+  "蒼空ストリーム": "Blue Sky Stream",
+  "摩天パーフェクト": "Skyscraping Perfection",
+  "イーブイヒーローズ": "Eevee Heroes",
+  "白銀のランス": "Silver Lance",
+  "漆黒のガイスト": "Jet-Black Spirit",
+  "双璧のファイター": "Peerless Fighters",
+  "一撃マスター": "Single Strike Master",
+  "連撃マスター": "Rapid Strike Master",
+  "シャイニースターV": "Shiny Star V",
+};
+
+/**
+ * Ensures label text is in English for U.S. grading standard presentation (CGC/PSA).
+ * Converts Japanese card/set names to English and strips lingering CJK script.
+ */
+export const toEnglishLabelText = (val?: string): string => {
+  if (!val) return "";
+  let text = val.trim();
+
+  if (JAPANESE_TEXT_MAP[text]) {
+    return JAPANESE_TEXT_MAP[text];
+  }
+
+  for (const [jp, en] of Object.entries(JAPANESE_TEXT_MAP)) {
+    if (text.includes(jp)) {
+      text = text.replace(new RegExp(jp, "g"), en);
+    }
+  }
+
+  if (FULLWIDTH.test(text)) {
+    const cleaned = text.replace(FULLWIDTH, "").trim();
+    return cleaned || text;
+  }
+
+  return text;
+};
+
 /**
  * One character's width in LATIN-EQUIVALENT characters for the given advance.
  *
@@ -696,14 +776,31 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
   );
   const metaChars = Math.max(6, infoW / (metaSize * 0.55));
 
-  const rawSetLine = [text.year, text.setExpansion].filter(Boolean).join(" ");
+  const cardNameDisplay = toEnglishLabelText(text.cardName) || text.cardName;
+  const setExpansionDisplay = toEnglishLabelText(text.setExpansion) || text.setExpansion;
+
+  const isJapanese =
+    text.language?.toLowerCase().includes("japan") ||
+    text.language?.toLowerCase() === "ja" ||
+    text.language?.toLowerCase() === "jpn" ||
+    FULLWIDTH.test(text.cardName) ||
+    FULLWIDTH.test(text.setExpansion || "");
+
+  // Per client feedback (2026-09-01): U.S. grading labels (CGC/PSA) render all label text in English.
+  // When a card is Japanese, we automatically append "Japanese" to the year/category/set line, e.g. "2023 Japanese".
+  let yearDisplay = text.year;
+  if (isJapanese) {
+    if (yearDisplay && !yearDisplay.toLowerCase().includes("japanese")) {
+      yearDisplay = `${yearDisplay} Japanese`;
+    } else if (!yearDisplay) {
+      yearDisplay = "Japanese";
+    }
+  }
+
+  const rawSetLine = [yearDisplay, setExpansionDisplay].filter(Boolean).join(" ");
   let setLine1 = rawSetLine;
   let setLine2 = "";
   // Wrapped on WIDTH, and at a character boundary when there is no word one.
-  // A Japanese set name carries no spaces at all, so the old space-only rule
-  // never fired and the line ran straight out of the column and under the
-  // grade. Japanese breaks between any two characters by convention, so a hard
-  // break is the correct fallback rather than a compromise.
   if (weightedChars(rawSetLine, 0.55) > metaChars) {
     const chars = Array.from(rawSetLine);
     const cut = breakAt(rawSetLine, metaChars, 0.55);
@@ -716,10 +813,9 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
     }
   }
 
-  // Single spaces around the bullet. The separator was "  ·  " — five
-  // characters of the column's budget spent on punctuation, which is what
-  // truncated "English" to "Engl…" once the card-info column narrowed.
-  const numberLine = [text.cardNumber, text.language].filter(Boolean).join(" • ");
+  // Single spaces around the bullet. If Japanese, "Japanese" is already prominently displayed on the set/year line.
+  const displayLang = isJapanese ? undefined : text.language;
+  const numberLine = [text.cardNumber, displayLang].filter(Boolean).join(" • ");
   // Set one step down from the set lines and given its own budget: it is
   // reference data, not a name, and it is the longest line in the column.
   const numberSize = Math.round(metaSize * 0.92);
@@ -740,34 +836,15 @@ export const buildTextLayer = (layout: SlabLayout, text: LabelText): Buffer => {
 
   // Identity: the handle captions the disc, so it hangs under it at the tight
   // CAPTION lead, not the head lead the card name gets.
-  //
-  // This column's head is an IMAGE, and that is the whole reason it differs.
-  // A text head is measured by its cap height but drawn with sidebearings and
-  // a descender well beneath it, so `rowLead` below a word already looks
-  // tighter than it measures. A disc has none of that — its drawn edge IS its
-  // measured edge — so the same number buys visibly more air, and the handle
-  // floated away from the avatar it belongs to. Client, 2026-08-25: "on the
-  // username space the gap is too much, need minimal space."
   const [, handleTop] = tightRows(rails.top, capLead, [
     avatarSize,
     handleSize * CAP_RATIO,
   ]);
 
-  // Card information: as many rows as the card actually has, with the same
-  // leads whether the set name wraps to a second line or not. The old fixed
-  // fractions carried a separate y for each case and had to be re-tuned by hand
-  // every time a row was added.
-  //
-  // The card NAME is this column's head, so the step below it is `rowLead` and
-  // everything after it is a caption block at `capLead`. That is what makes a
-  // wrapped set name read as one name.
+  // Card information: as many rows as the card actually has.
+  // Per client feedback (2026-09-01), Japanese script characters are not rendered on the label.
   const infoLines = [
-    // 0.55 is the advance every budget in this column was derived from; `fit`
-    // needs it to charge a full-width glyph its true share of that budget.
-    { cls: "name", size: nameSize, value: fit(text.cardName, nameChars, 0.55) },
-    ...(text.japaneseName
-      ? [{ cls: "meta", size: metaSize, value: fit(text.japaneseName, metaChars, 0.55) }]
-      : []),
+    { cls: "name", size: nameSize, value: fit(cardNameDisplay, nameChars, 0.55) },
     ...(setLine1
       ? [{ cls: "meta", size: metaSize, value: fit(setLine1, metaChars, 0.55) }]
       : []),
