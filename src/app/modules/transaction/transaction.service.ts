@@ -73,6 +73,7 @@ const getEarnings = async (from?: Date, to?: Date) => {
 
   const subscriptions = byType.find((r) => r._id === "subscription");
   const slabOrders = byType.find((r) => r._id === "slab_order");
+  const pixelScopeOrders = byType.find((r) => r._id === "pixel_scope" || r._id === "pixelscope");
 
   return {
     grossRevenue: Number(
@@ -80,8 +81,10 @@ const getEarnings = async (from?: Date, to?: Date) => {
     ),
     subscriptionRevenue: Number((subscriptions?.total ?? 0).toFixed(2)),
     slabOrderRevenue: Number((slabOrders?.total ?? 0).toFixed(2)),
+    pixelScopeOrderRevenue: Number((pixelScopeOrders?.total ?? 0).toFixed(2)),
     subscriptionCount: subscriptions?.count ?? 0,
     slabOrderCount: slabOrders?.count ?? 0,
+    pixelScopeOrderCount: pixelScopeOrders?.count ?? 0,
     refundedAmount: Number((refunded[0]?.total ?? 0).toFixed(2)),
     refundedCount: refunded[0]?.count ?? 0,
   };

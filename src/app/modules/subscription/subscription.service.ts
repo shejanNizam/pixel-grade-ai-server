@@ -521,15 +521,25 @@ const getSubscriberStats = async () => {
     _id: null;
     total: number;
   }>([
-    { $match: { paymentStatus: { $ne: "failed" } } },
+    { $match: { paymentStatus: { $ne: "failed" }, "items.gradeLabel": { $ne: "HARDWARE" } } },
     { $group: { _id: null, total: { $sum: "$totalAmount" } } },
   ]);
   const slabRevenue = slabRevenueAgg[0]?.total ?? 0;
+
+  const pixelScopeRevenueAgg = await SlabOrder.aggregate<{
+    _id: null;
+    total: number;
+  }>([
+    { $match: { paymentStatus: { $ne: "failed" }, "items.gradeLabel": "HARDWARE" } },
+    { $group: { _id: null, total: { $sum: "$totalAmount" } } },
+  ]);
+  const pixelScopeRevenue = pixelScopeRevenueAgg[0]?.total ?? 0;
 
   return {
     activeSubscriptions: stats?.activeSubscriptions ?? 0,
     mrr: Number((stats?.mrr ?? 0).toFixed(2)),
     slabRevenue: Number((slabRevenue ?? 0).toFixed(2)),
+    pixelScopeRevenue: Number((pixelScopeRevenue ?? 0).toFixed(2)),
     newThisMonth: stats?.newThisMonth ?? 0,
     newLastMonth: stats?.newLastMonth ?? 0,
   };

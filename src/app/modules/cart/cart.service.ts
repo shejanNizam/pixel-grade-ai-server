@@ -7,7 +7,7 @@ import { Card } from "../card/card.model";
 import { Cart } from "./cart.model";
 import { ICartItem } from "./cart.interface";
 
-const UNIT_PRICE = 0.99;
+const UNIT_PRICE = 11.99;
 
 export interface IAddToCartPayload {
   slabId?: string;
@@ -23,10 +23,10 @@ const getCart = async (userId: string) => {
   if (!cart) {
     cart = await Cart.create({ user: userId, items: [] });
   } else {
-    // Auto-migrate legacy custom slab items from $24.99 to $5.99
+    // Auto-migrate custom slab items to official price of $11.99
     let updated = false;
     cart.items.forEach((item) => {
-      if (item.gradeLabel !== "HARDWARE" && item.price === 24.99) {
+      if (item.gradeLabel !== "HARDWARE" && (item.price === 11.99 || item.price === 7.99 || item.price === 24.99)) {
         item.price = UNIT_PRICE;
         updated = true;
       }

@@ -8,9 +8,9 @@ const getShippoKey = () => process.env.SHIPPO_API_KEY || "";
 
 export const SHIP_FROM_ADDRESS = {
   name: "PixelGrade Fulfillment Center",
-  company: "PixelGrade AI",
-  street1: "112 Commercial Ct",
-  street2: "Ste 25",
+  company: "",
+  street1: "112 Commercial Ct, Ste 25",
+  street2: "",
   city: "Santa Rosa",
   state: "CA",
   zip: "95407",
@@ -131,7 +131,7 @@ const getRatesForShipment = async (
     address_from: SHIP_FROM_ADDRESS,
     address_to: {
       name: toAddress.name,
-      company: "PixelGrade Customer",
+      company: "",
       street1: toAddress.street1,
       street2: toAddress.street2 || "",
       city: toAddress.city,
