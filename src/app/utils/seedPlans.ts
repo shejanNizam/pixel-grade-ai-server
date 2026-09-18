@@ -1,4 +1,4 @@
-import { CREDITS_PER_SCAN, FREE_DAILY_CREDITS } from "../constants";
+import { CREDITS_PER_SCAN, FREE_MONTHLY_CREDITS } from "../constants";
 import {
   CreditInterval,
   IPlanInitial,
@@ -8,17 +8,8 @@ import { Plan } from "../modules/plan/plan.model";
 import { logger } from "./logger";
 
 /**
- * The four fixed tiers. Mirrors `pixel-grade-ai/src/config/plans.ts` — if you
- * change prices, credits, or features here, change them there too.
- *
- * `priceYearly` is the *effective monthly* rate on a yearly subscription; the
- * customer is charged that × 12 up front. Credits still refresh monthly.
- *
- * ⚠️ `creditAmount` is in CREDITS, but the client specifies plans in SCANS
- * (2026-08-10: Free 5/day, Collector 300/month, Pro 1,200/month, Enterprise
- * unlimited). Multiply by CREDITS_PER_SCAN. Pasting the scan count in here
- * fails silently — the plan still works, it just sells a fifth of what was
- * advertised.
+ * The 3 active tiers (Free, Pro, Enterprise) plus deprecated Collector tier.
+ * Mirrors `pixel-grade-ai/src/config/plans.ts`.
  */
 const planCatalog: IPlanInitial[] = [
   {
@@ -26,23 +17,23 @@ const planCatalog: IPlanInitial[] = [
     tagline: "For trying it out",
     priceMonthly: 0,
     priceYearly: 0,
-    creditAmount: FREE_DAILY_CREDITS,
-    creditInterval: CreditInterval.daily,
+    creditAmount: FREE_MONTHLY_CREDITS,
+    creditInterval: CreditInterval.monthly,
     pixelscope: false,
-    priceTracking: false,
+    priceTracking: true,
     watermarkReports: true,
     features: [
-      "Standard scan (phone camera)",
-      "Basic AI grading report",
-      "Order custom slab labels",
-      "No PixelScope",
-      "No Pixel Verified badge",
+      "AI grading",
+      "Full grading reports",
+      "Label generator",
+      "Collection management",
+      "Price tracking",
     ],
     isActive: true,
   },
   {
     name: PlanName.Collector,
-    tagline: "For active collectors",
+    tagline: "For active collectors (Deprecated)",
     priceMonthly: 10,
     priceYearly: 8,
     creditAmount: 1500,
@@ -59,7 +50,7 @@ const planCatalog: IPlanInitial[] = [
       "Price tracking",
       "Order custom slab labels",
     ],
-    isActive: true,
+    isActive: false, // Deprecated per client feedback
   },
   {
     name: PlanName.Pro,
@@ -72,12 +63,10 @@ const planCatalog: IPlanInitial[] = [
     priceTracking: true,
     watermarkReports: false,
     features: [
-      "Everything in Collector",
+      "Everything in Free",
       "Priority AI processing",
-      "Bulk grading",
       "Advanced analytics",
       "Collection insights",
-      "Early access to new AI features",
       "Priority support",
     ],
     isActive: true,
@@ -94,12 +83,10 @@ const planCatalog: IPlanInitial[] = [
     watermarkReports: false,
     features: [
       "Everything in Pro",
-      "Custom grading reports",
-      "Team accounts",
-      "Card Shop Dashboard",
-      "API access (coming soon)",
-      "Dedicated account manager",
-      "Priority feature requests",
+      "Priority support",
+      "Card Shop Dashboard (Coming Soon)",
+      "Team Accounts (Coming Soon)",
+      "API Access (Coming Soon)",
     ],
     isActive: true,
   },
@@ -108,6 +95,7 @@ const planCatalog: IPlanInitial[] = [
 import { User } from "../modules/user/user.model";
 import { Subscription } from "../modules/subscription/subscription.model";
 import { BillingInterval, SubStatus } from "../modules/subscription/subscription.interface";
+import { CreditServices } from "../modules/credit/credit.service";
 
 export const grantAdminEnterpriseAccess = async () => {
   try {
@@ -141,17 +129,33 @@ export const grantAdminEnterpriseAccess = async () => {
 };
 
 /**
- * Inserts any missing tier and grants admin Enterprise access.
+ * Inserts any missing tier, synchronizes updated plan definitions, and grants admin Enterprise access.
  */
 export const seedPlans = async () => {
   try {
     for (const plan of planCatalog) {
       const exists = await Plan.findOne({ name: plan.name });
       if (exists) {
+        let changed = false;
         if (exists.creditAmount !== plan.creditAmount) {
           exists.creditAmount = plan.creditAmount;
+          changed = true;
+        }
+        if (exists.creditInterval !== plan.creditInterval) {
+          exists.creditInterval = plan.creditInterval;
+          changed = true;
+        }
+        if (exists.isActive !== plan.isActive) {
+          exists.isActive = plan.isActive;
+          changed = true;
+        }
+        if (JSON.stringify(exists.features) !== JSON.stringify(plan.features)) {
+          exists.features = plan.features;
+          changed = true;
+        }
+        if (changed) {
           await exists.save();
-          logger.info(`Updated creditAmount for plan: ${plan.name}`);
+          logger.info(`Updated plan details for: ${plan.name}`);
         }
         continue;
       }
@@ -161,6 +165,7 @@ export const seedPlans = async () => {
     }
 
     await grantAdminEnterpriseAccess();
+    await CreditServices.migrateLegacyFreeWallets();
   } catch (error) {
     logger.error("Failed to seed plans", { error });
   }

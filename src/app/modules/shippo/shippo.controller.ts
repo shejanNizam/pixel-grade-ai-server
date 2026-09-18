@@ -25,7 +25,20 @@ const getRates = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+import { SlabOrderServices } from "../slabOrder/slabOrder.service";
+
+const handleTrackingWebhook = catchAsync(async (req: Request, res: Response) => {
+  const result = await SlabOrderServices.processShippoTrackingWebhook(req.body);
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Shippo tracking webhook processed successfully",
+    data: result,
+  });
+});
+
 export const ShippoController = {
   validateAddress,
   getRates,
+  handleTrackingWebhook,
 };

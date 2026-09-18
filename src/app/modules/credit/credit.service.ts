@@ -10,6 +10,7 @@ import { SubStatus } from "../subscription/subscription.interface";
 import { CreditReason, ICreditLedger } from "./credit.interface";
 import { CreditLedger, CreditWallet } from "./credit.model";
 import { User } from "../user/user.model";
+import { logger } from "../../utils/logger";
 
 /**
  * Every wallet mutation goes through here so no code path can move credits
@@ -144,20 +145,63 @@ const startOfToday = () => {
   return start;
 };
 
+/** Start of current month, server time — the boundary a monthly grant crosses. */
+const startOfCurrentMonth = () => {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  return start;
+};
+
 /**
- * Top up a Free wallet if today's allowance has not landed yet.
- *
- * The cron at 00:05 only fires in a process that is alive at 00:05. On a single
- * instance that restarts, redeploys, or is simply down for ten minutes, the
- * grant is skipped and never caught up — which is exactly the "20 daily credits
- * do not refresh" report from prototype V1. Granting lazily on read makes the
- * allowance a function of the calendar rather than of process uptime; the cron
- * stays as a backstop so wallets nobody opens still tick over.
- *
- * The claim is a single conditional update, not a read-then-write: a dashboard
- * that fires the balance, ledger, and scan requests in parallel at 00:01 must
- * produce one grant, not three. Only the caller that moves `lastDailyGrantAt`
- * past midnight writes a ledger row.
+ * Top up a Free monthly wallet if this month's allowance has not landed yet
+ * or if upgrading legacy 100-credit allowance to 500 credits.
+ */
+const ensureMonthlyFreeAllowance = async (userId: string) => {
+  const wallet = await getOrCreateWallet(userId);
+  if (wallet.isUnlimited) return { granted: false, balance: null };
+
+  const plan = await resolvePlan(userId);
+  if (plan.name !== PlanName.Free || plan.creditAmount === null) {
+    return { granted: false, balance: wallet.balance };
+  }
+
+  const needsUpgrade = wallet.balance < plan.creditAmount && !wallet.lastMonthlyGrantAt;
+  const isNewMonth = !wallet.lastMonthlyGrantAt || wallet.lastMonthlyGrantAt < startOfCurrentMonth();
+
+  if (!needsUpgrade && !isNewMonth) {
+    return { granted: false, balance: wallet.balance };
+  }
+
+  const claimed = await CreditWallet.findOneAndUpdate(
+    {
+      user: userId,
+      isUnlimited: false,
+      $or: [
+        { lastMonthlyGrantAt: { $exists: false } },
+        { lastMonthlyGrantAt: null },
+        { lastMonthlyGrantAt: { $lt: startOfCurrentMonth() } },
+        ...(needsUpgrade ? [{ balance: { $lt: plan.creditAmount } }] : []),
+      ],
+    },
+    { $set: { balance: plan.creditAmount, lastMonthlyGrantAt: new Date() } },
+    { returnDocument: "after" },
+  );
+
+  if (!claimed) return { granted: false, balance: wallet.balance };
+
+  await recordEntry(
+    userId,
+    plan.creditAmount - wallet.balance,
+    CreditReason.grant_monthly,
+    claimed.balance,
+  );
+
+  return { granted: true, balance: claimed.balance };
+};
+
+/**
+ * Top up a Free wallet if today's allowance has not landed yet (legacy daily plans).
  */
 const ensureDailyAllowance = async (userId: string) => {
   const wallet = await getOrCreateWallet(userId);
@@ -187,9 +231,6 @@ const ensureDailyAllowance = async (userId: string) => {
 
   if (!claimed) return { granted: false, balance: wallet.balance };
 
-  // Free credits do not roll over, so the grant is a reset. The ledger records
-  // the delta it actually moved, which is negative when the user still held
-  // more than a day's allowance.
   await recordEntry(
     userId,
     plan.creditAmount - wallet.balance,
@@ -201,6 +242,7 @@ const ensureDailyAllowance = async (userId: string) => {
 };
 
 const getBalance = async (userId: string) => {
+  await ensureMonthlyFreeAllowance(userId);
   await ensureDailyAllowance(userId);
 
   const wallet = await getOrCreateWallet(userId);
@@ -240,6 +282,7 @@ const spendForScan = async (
   // Settle today's allowance before reading the balance. Without this a Free
   // user whose grant was missed is refused a scan they are entitled to, and
   // only a visit to the balance widget would unstick them.
+  await ensureMonthlyFreeAllowance(userId);
   await ensureDailyAllowance(userId);
 
   const wallet = await getOrCreateWallet(userId);
@@ -440,6 +483,28 @@ const getLedger = async (userId: string, query: Record<string, string>) => {
   return { data: entries, meta };
 };
 
+const migrateLegacyFreeWallets = async () => {
+  try {
+    const freePlan = await Plan.findOne({ name: PlanName.Free });
+    if (!freePlan || !freePlan.creditAmount) return;
+
+    const result = await CreditWallet.updateMany(
+      {
+        isUnlimited: false,
+        balance: { $lt: freePlan.creditAmount },
+      },
+      {
+        $set: { balance: freePlan.creditAmount, lastMonthlyGrantAt: new Date() },
+      },
+    );
+    logger.info("Migrated legacy free wallets to 500 credits", {
+      modified: result.modifiedCount,
+    });
+  } catch (err) {
+    logger.error("Failed to migrate legacy free wallets", { error: err });
+  }
+};
+
 export const CreditServices = {
   getOrCreateWallet,
   getBalance,
@@ -447,6 +512,8 @@ export const CreditServices = {
   refundScan,
   grantAllowance,
   ensureDailyAllowance,
+  ensureMonthlyFreeAllowance,
+  migrateLegacyFreeWallets,
   adminAdjust,
   getLedger,
   resolvePlan,

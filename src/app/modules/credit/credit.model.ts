@@ -18,6 +18,7 @@ export const creditWalletSchema = new Schema<ICreditWallet>(
     periodStart: { type: Date },
     periodEnd: { type: Date },
     lastDailyGrantAt: { type: Date },
+    lastMonthlyGrantAt: { type: Date },
   },
   {
     timestamps: true,

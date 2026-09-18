@@ -19,9 +19,12 @@ export const excludeField = [
 export const CREDITS_PER_SCAN = 5;
 
 /**
- * Daily allowance for Free, re-granted by cron rather than accrued. No rollover.
- * Updated to 20 credits/day per final client specification.
+ * Monthly allowance for Free, re-granted monthly rather than accrued. No rollover.
+ * Updated to 500 credits/month per final client specification.
  */
+export const FREE_MONTHLY_CREDITS = 500;
+
+/** Legacy daily allowance constant kept for backwards compatibility */
 export const FREE_DAILY_CREDITS = 20;
 
 /**

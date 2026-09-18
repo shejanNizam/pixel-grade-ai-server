@@ -6,6 +6,9 @@ import { ShippoController } from "./shippo.controller";
 const router = Router();
 const anyUser = Object.values(UserRole);
 
+// Public Shippo tracking webhook endpoint — called by Shippo, not authenticated clients
+router.post("/webhook", ShippoController.handleTrackingWebhook);
+
 router.use(checkAuth(...anyUser));
 
 router.post("/validate-address", ShippoController.validateAddress);

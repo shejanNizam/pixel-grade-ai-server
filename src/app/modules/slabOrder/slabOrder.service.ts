@@ -511,6 +511,88 @@ const updateOrderStatus = async (
   ]);
 };
 
+const processShippoTrackingWebhook = async (payload: any) => {
+  const trackingNumber =
+    payload?.data?.tracking_number ||
+    payload?.tracking_number ||
+    payload?.trackingNumber;
+
+  if (!trackingNumber) {
+    logger.warn("Shippo tracking webhook received without tracking number", { payload });
+    return { success: false, message: "Missing tracking number" };
+  }
+
+  const rawStatus =
+    payload?.data?.tracking_status?.status ||
+    payload?.tracking_status?.status ||
+    payload?.data?.tracking_status ||
+    payload?.tracking_status ||
+    payload?.status;
+
+  const normalizedStatus = String(rawStatus || "").toUpperCase();
+
+  let targetStatus: TSlabOrderStatus | null = null;
+  if (normalizedStatus === "DELIVERED") {
+    targetStatus = "delivered";
+  } else if (
+    normalizedStatus === "TRANSIT" ||
+    normalizedStatus === "IN_TRANSIT" ||
+    normalizedStatus === "ACCEPTED" ||
+    normalizedStatus === "OUT_FOR_DELIVERY"
+  ) {
+    targetStatus = "in_transit";
+  } else if (
+    normalizedStatus === "PRE_TRANSIT" ||
+    normalizedStatus === "UNKNOWN" ||
+    normalizedStatus === "LABEL_CREATED"
+  ) {
+    targetStatus = "ready_to_ship";
+  }
+
+  if (!targetStatus) {
+    logger.info(`Shippo tracking status '${rawStatus}' does not require order state transition`, {
+      trackingNumber,
+      rawStatus,
+    });
+    return { success: true, message: `Ignored status ${rawStatus}` };
+  }
+
+  const order = await SlabOrder.findOne({
+    $or: [
+      { trackingNumber: trackingNumber },
+      { "shippo.trackingNumber": trackingNumber },
+    ],
+  });
+
+  if (!order) {
+    logger.warn(`No slab order found matching tracking number ${trackingNumber}`);
+    return { success: false, message: "Order not found for tracking number" };
+  }
+
+  order.orderStatus = targetStatus;
+  order.status = targetStatus;
+
+  const statusDetail =
+    payload?.data?.tracking_status?.status_details ||
+    payload?.tracking_status?.status_details;
+  if (statusDetail) {
+    order.notes = `Carrier update: ${statusDetail}`;
+  }
+
+  await order.save();
+  logger.info(`Shippo tracking webhook updated order ${order.orderNumber} to ${targetStatus}`, {
+    orderNumber: order.orderNumber,
+    trackingNumber,
+    newStatus: targetStatus,
+  });
+
+  return {
+    success: true,
+    orderNumber: order.orderNumber,
+    orderStatus: targetStatus,
+  };
+};
+
 export const SlabOrderServices = {
   createOrder,
   createStripeCheckout,
@@ -520,4 +602,5 @@ export const SlabOrderServices = {
   getAllOrders,
   getOrderById,
   updateOrderStatus,
+  processShippoTrackingWebhook,
 };

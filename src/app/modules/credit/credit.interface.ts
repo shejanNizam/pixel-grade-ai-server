@@ -22,6 +22,8 @@ export interface ICreditWalletInitial {
   periodEnd?: Date;
   /** Guards the Free daily reset so a restarted cron cannot double-grant. */
   lastDailyGrantAt?: Date;
+  /** Guards the monthly reset so Free monthly grants don't duplicate within the same month. */
+  lastMonthlyGrantAt?: Date;
 }
 
 export type ICreditWallet = ICreditWalletInitial & Document;
