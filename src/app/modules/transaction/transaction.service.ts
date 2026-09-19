@@ -1,4 +1,5 @@
 import { PipelineStage } from "mongoose";
+import { EARNINGS_RESET_DATE } from "../../constants";
 import { QueryBuilder } from "../../utils/QueryBuilder";
 import { ITransaction, TxnStatus } from "./transaction.interface";
 import { Transaction } from "./transaction.model";
@@ -21,7 +22,7 @@ const getMyTransactions = async (
 
 const getAllTransactions = async (query: Record<string, string>) => {
   const queryBuilder = new QueryBuilder<ITransaction>(
-    Transaction.find()
+    Transaction.find({ createdAt: { $gte: EARNINGS_RESET_DATE } })
       .populate("user", "name email")
       .populate("plan", "name"),
     query,
@@ -36,17 +37,20 @@ const getAllTransactions = async (query: Record<string, string>) => {
 /**
  * Admin earnings.
  *
- * Counts only `succeeded` — pending and failed rows exist in the ledger for
+ * Counts only `succeeded` from EARNINGS_RESET_DATE forward — pending and failed rows exist in the ledger for
  * audit but are not revenue, and refunds are excluded from the total rather
  * than netted, so gross and refunded are both visible.
  */
 const getEarnings = async (from?: Date, to?: Date) => {
-  const dateFilter: Record<string, Date> = {};
-  if (from) dateFilter.$gte = from;
+  const effectiveFrom =
+    from && from > EARNINGS_RESET_DATE ? from : EARNINGS_RESET_DATE;
+  const dateFilter: Record<string, Date> = { $gte: effectiveFrom };
   if (to) dateFilter.$lte = to;
 
-  const match: Record<string, unknown> = { status: TxnStatus.succeeded };
-  if (Object.keys(dateFilter).length) match.createdAt = dateFilter;
+  const match: Record<string, unknown> = {
+    status: TxnStatus.succeeded,
+    createdAt: dateFilter,
+  };
 
   const pipeline: PipelineStage[] = [
     { $match: match },
@@ -65,7 +69,7 @@ const getEarnings = async (from?: Date, to?: Date) => {
     {
       $match: {
         status: TxnStatus.refunded,
-        ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+        createdAt: dateFilter,
       },
     },
     { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } },
@@ -73,7 +77,9 @@ const getEarnings = async (from?: Date, to?: Date) => {
 
   const subscriptions = byType.find((r) => r._id === "subscription");
   const slabOrders = byType.find((r) => r._id === "slab_order");
-  const pixelScopeOrders = byType.find((r) => r._id === "pixel_scope" || r._id === "pixelscope");
+  const pixelScopeOrders = byType.find(
+    (r) => r._id === "pixel_scope" || r._id === "pixelscope",
+  );
 
   return {
     grossRevenue: Number(
@@ -94,9 +100,15 @@ const getEarnings = async (from?: Date, to?: Date) => {
 const getRevenueByMonth = async (months = 12) => {
   const from = new Date();
   from.setMonth(from.getMonth() - months);
+  const effectiveFrom = from > EARNINGS_RESET_DATE ? from : EARNINGS_RESET_DATE;
 
   return Transaction.aggregate([
-    { $match: { status: TxnStatus.succeeded, createdAt: { $gte: from } } },
+    {
+      $match: {
+        status: TxnStatus.succeeded,
+        createdAt: { $gte: effectiveFrom },
+      },
+    },
     {
       $group: {
         _id: {

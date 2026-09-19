@@ -7,6 +7,14 @@ export const excludeField = [
   "isDeleted",
 ];
 
+/**
+ * Cut-off date for fresh earnings reporting per client feedback ("reset to $0 to start fresh").
+ * Orders & transactions created prior to this timestamp are excluded from financial aggregation.
+ */
+export const EARNINGS_RESET_DATE = new Date(
+  process.env.EARNINGS_RESET_DATE || "2026-09-19T00:00:00.000Z",
+);
+
 // ---------------------------------------------------------------------------
 // Credits
 //

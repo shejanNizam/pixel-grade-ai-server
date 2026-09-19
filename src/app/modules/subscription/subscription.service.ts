@@ -2,6 +2,7 @@ import httpStatus from "http-status";
 import { PipelineStage, Types } from "mongoose";
 import Stripe from "stripe";
 import { configs } from "../../config/index";
+import { EARNINGS_RESET_DATE } from "../../constants";
 import AppError from "../../errorHelpers/AppError";
 import { getStripe } from "../../services/stripe.service";
 import { startOfMonth } from "../../utils/dateWindows";
@@ -469,7 +470,29 @@ const getSubscriberStats = async () => {
     newThisMonth: number;
     newLastMonth: number;
   }>([
-    { $match: { status: SubStatus.active } },
+    {
+      $match: {
+        status: SubStatus.active,
+        createdAt: { $gte: EARNINGS_RESET_DATE },
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "subscriberUser",
+      },
+    },
+    { $unwind: "$subscriberUser" },
+    {
+      $match: {
+        "subscriberUser.role": { $nin: ["admin", "super_admin"] },
+        "subscriberUser.email": {
+          $nin: ["admin@pixelgradeai.com", "superadmin@pixelgradeai.com"],
+        },
+      },
+    },
     {
       $lookup: {
         from: Plan.collection.name,
@@ -521,7 +544,13 @@ const getSubscriberStats = async () => {
     _id: null;
     total: number;
   }>([
-    { $match: { paymentStatus: { $ne: "failed" }, "items.gradeLabel": { $ne: "HARDWARE" } } },
+    {
+      $match: {
+        paymentStatus: { $ne: "failed" },
+        "items.gradeLabel": { $ne: "HARDWARE" },
+        createdAt: { $gte: EARNINGS_RESET_DATE },
+      },
+    },
     { $group: { _id: null, total: { $sum: "$totalAmount" } } },
   ]);
   const slabRevenue = slabRevenueAgg[0]?.total ?? 0;
@@ -530,7 +559,13 @@ const getSubscriberStats = async () => {
     _id: null;
     total: number;
   }>([
-    { $match: { paymentStatus: { $ne: "failed" }, "items.gradeLabel": "HARDWARE" } },
+    {
+      $match: {
+        paymentStatus: { $ne: "failed" },
+        "items.gradeLabel": "HARDWARE",
+        createdAt: { $gte: EARNINGS_RESET_DATE },
+      },
+    },
     { $group: { _id: null, total: { $sum: "$totalAmount" } } },
   ]);
   const pixelScopeRevenue = pixelScopeRevenueAgg[0]?.total ?? 0;

@@ -9,9 +9,9 @@ const getAllPlans = async () => {
   return Plan.find({ isActive: true }).sort({ priceMonthly: 1 });
 };
 
-/** Admin view includes deactivated tiers. */
+/** Admin view — returns active canonical tiers. */
 const getAllPlansForAdmin = async () => {
-  return Plan.find().sort({ priceMonthly: 1 });
+  return Plan.find({ isActive: true }).sort({ priceMonthly: 1 });
 };
 
 const getSinglePlan = async (id: string) => {
